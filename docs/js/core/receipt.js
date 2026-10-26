@@ -345,8 +345,29 @@ export function contentId(r) {
   return `rcp-${h.toString(16).padStart(8, '0')}`;
 }
 
-/** 読み取り結果の良さ（大きいほど良い）。明細の合計がレシートの合計と一致すれば大きく加点する */
+/** 文字として読めた明細か。品名の半分以上が日本語（OCRの英字ゴミを除く）で、金額が5円以上 */
+export function isPlausibleItem(it) {
+  const letters = String(it.name).replace(/[\s\d.,()（）\-%¥*]/g, '');
+  const cjk = (letters.match(/[぀-ヿ一-鿿]/g) || []).length;
+  return cjk >= 1 && cjk / letters.length >= 0.5 && Math.abs(it.amount) >= 5;
+}
+
+/** 読み取り結果の良さ（大きいほど良い）。文字として読めた明細だけを数え、合計が一致すれば大きく加点する */
+
 export function scoreParse(p) {
-  if (!p.items.length) return 0;
-  return p.items.length + (p.sumMatches ? 100 : 0) + (p.dateFound ? 2 : 0) + (p.store ? 1 : 0);
+  const n = p.items.filter(isPlausibleItem).length;
+  if (!n) return 0;
+  return n + (p.sumMatches ? 100 : 0) + (p.dateFound ? 2 : 0) + (p.store ? 1 : 0);
+}
+
+/**
+ * 画面に結果を出してよいか。ゴミの出力に、偶然それらしい行が1つ混ざっても通さないよう、
+ * 「読めた明細が半分以上」に加えて、根拠が2つ以上あることを求める。
+ * 根拠 = 日付が読めた / 合計が読めた / 明細の合計が一致した / 読めた明細が3行以上（これは2つ分）
+ */
+export function isReadable(p) {
+  const n = p.items.filter(isPlausibleItem).length;
+  if (n < 1 || n < p.items.length * 0.5) return false;
+  const evidence = (p.dateFound ? 1 : 0) + (p.totalFound ? 1 : 0) + (p.sumMatches ? 1 : 0) + (n >= 3 ? 2 : 0);
+  return evidence >= 2;
 }

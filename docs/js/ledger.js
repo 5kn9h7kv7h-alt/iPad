@@ -76,27 +76,49 @@ export function createLedger(env) {
         <div class="form-actions"><button type="button" class="btn ghost" data-act="manual">手入力にする</button></div>
       </div>`;
     const setErr = (msg) => { const el = $('#scan-error', dlg); el.hidden = !msg; el.textContent = msg || ''; };
-    const finish = (text, source, method = '') => {
+    const finish = (text, source, method = '', preview = '') => {
       const parsed = R.parseReceiptText(text, { rules: state.rules });
       dlg.close();
-      openForm({ parsed: { ...parsed, rawText: text, source, method } });
+      openForm({ parsed: { ...parsed, rawText: text, source, method, preview } });
     };
-    $('#scan-file', dlg).onchange = async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
+    // 文字として読めなかった時: ゴミの表は出さず、原因の手がかり（OCRが見た画像）と、やり直しの選択肢を出す
+    const showFailure = (res) => {
+      const el = $('#scan-error', dlg);
+      const tried = res.tried.map((t) => `${t.name}（${t.score}）`).join('、');
+      el.hidden = false;
+      el.innerHTML = `<b>うまく読み取れませんでした</b>
+        <span>文字として読めた行がほとんどありませんでした。<b>写真の向きが違う</b>、ピントが合っていない、暗すぎる、のどれかかもしれません。下の画像は、読み取りに使った画像です。</span>
+        ${res.preview ? `<img class="scan-preview" data-testid="scan-preview" alt="読み取りに使った画像" src="${res.preview}">` : ''}
+        <span class="muted">試した方式：${esc(tried || 'なし')}</span>
+        <div class="btn-row"><button type="button" class="btn small" data-act="rot" data-deg="90">右へ90°回して読み直す</button>
+          <button type="button" class="btn small" data-act="rot" data-deg="270">左へ90°回して読み直す</button>
+          <button type="button" class="btn small" data-act="rot" data-deg="180">180°回して読み直す</button></div>`;
+    };
+    let lastFile = null;
+    const run = async (file, rotate = 0) => {
       setErr('');
       const prog = $('#scan-progress', dlg);
       prog.hidden = false;
       $('#scan-file-label', dlg).setAttribute('aria-disabled', 'true');
       try {
-        const { text, method } = await recognizeImage(file, (msg, p) => { $('#scan-msg', dlg).textContent = msg; $('#scan-bar', dlg).style.width = `${Math.round(p * 100)}%`; });
+        const settings = rotate ? { ...loadOcrSettings(), mode: 'auto', rotate } : loadOcrSettings();
+        const res = await recognizeImage(file, (msg, p) => { $('#scan-msg', dlg).textContent = msg; $('#scan-bar', dlg).style.width = `${Math.round(p * 100)}%`; }, settings);
         if (!dlg.open) return; // 途中で閉じられた
-        finish(text, 'ocr', method);
+        const parsed = R.parseReceiptText(res.text, { rules: state.rules });
+        if (!R.isReadable(parsed)) { prog.hidden = true; showFailure(res); return; }
+        finish(res.text, 'ocr', res.method, res.preview);
       } catch (err) {
         console.error(err);
         prog.hidden = true;
         setErr(`読み取れませんでした：${err.message || err}。写真を撮り直すか、下の「テキストを貼り付け」「手入力」をお使いください。`);
-      } finally { e.target.value = ''; $('#scan-file-label', dlg).removeAttribute('aria-disabled'); }
+      } finally { $('#scan-file-label', dlg).removeAttribute('aria-disabled'); }
+    };
+    $('#scan-file', dlg).onchange = async (e) => {
+      const file = e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      lastFile = file; // 向きを変えて読み直すために、この画面を開いている間だけメモリに持つ（保存しない）
+      await run(file);
     };
     dlg.onclick = (e) => {
       if (e.target.closest('[data-close]') || e.target.closest('[data-close-link]')) return dlg.close();
@@ -106,6 +128,7 @@ export function createLedger(env) {
         if (!text.trim()) return setErr('テキストを貼り付けてください');
         finish(text, 'manual');
       } else if (act === 'manual') { dlg.close(); openForm({}); }
+      else if (act === 'rot' && lastFile) run(lastFile, Number(e.target.closest('[data-act]').dataset.deg));
     };
     dlg.showModal();
   }
@@ -133,6 +156,7 @@ export function createLedger(env) {
           <button type="button" class="btn small" data-add-row>＋ 品目を追加</button></div>
         <div class="rtotal"><span>合計</span><b id="rf-total" data-testid="form-total">¥0</b>${parsed?.total != null && parsed.items.length ? `<span class="muted">レシート記載: ${yen(parsed.total)}</span>` : ''}</div>
         <div id="rf-errors" class="err" role="alert"></div>
+        ${base.preview ? `<details class="examples"><summary>読み取りに使った画像を見る</summary><img class="scan-preview" alt="読み取りに使った画像" src="${base.preview}"></details>` : ''}
         ${base.rawText ? `<details class="examples"><summary>読み取ったテキストを見る</summary><pre class="raw">${esc(base.rawText)}</pre></details>` : ''}
         <div class="form-actions">${receipt ? '<button type="button" class="btn danger" data-act="delete">削除</button>' : ''}<button type="submit" class="btn primary">保存</button></div>
       </form>`;

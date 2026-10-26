@@ -264,3 +264,58 @@ test('分類: 根菜・いも・鶏肉などの食材', () => {
   for (const n of ['さつまいも', 'じゃがいも', '里芋', '人参', '銘柄鶏むね正肉', '鶏ささみ', 'ブロッコリー', '小松菜', '油揚げ', 'ごぼう']) assert.equal(R.categorize(n), '食費', n);
   assert.equal(R.categorize('有料レジ袋 大'), '日用品');
 });
+
+// 実機(iPad)の確認画面に出た、読み取り失敗（写真の向きが違う等）のゴミ出力。英字の羅列と、1〜8円の金額。
+const GARBAGE = `ホーム
+あのはCS OCN NANANSS     2
+YSSNSRSSNNSSSRSRNN NSI       2
++   2ややNN IP    1
+らら NO SNS NCAACNTNNRN    8610
+2 SNS ROHSRNUHGSUNORH   3
+1       SF CO (     1
+51 3    らら8N   1
+ン  1     ET     sへw ー    2
+四 c 世  G  Krつう|   1
+Ss) 5)    でへでで   1
+`;
+
+test('読み取り失敗（ゴミ出力）は「読めた」と判定せず、スコア0にする', () => {
+  const g = R.parseReceiptText(GARBAGE, { now: NOW });
+  assert.ok(g.items.length > 0, 'パーサーは行を拾ってしまう');
+  assert.equal(g.items.filter(R.isPlausibleItem).length, 0);
+  assert.equal(R.isReadable(g), false);
+  assert.equal(R.scoreParse(g), 0);
+  const ok = R.parseReceiptText('店\n2026/10/25\n牛乳 \\198\n卵 \\250\n合計 \\448', { now: NOW });
+  assert.equal(R.isReadable(ok), true);
+  assert.equal(R.isReadable(R.parseReceiptText('', { now: NOW })), false);
+});
+
+test('読めた明細の判定: 日本語が半分以上・金額5円以上。1文字の食材（卵・米）は読めた扱い', () => {
+  const it = (name, amount) => ({ name, amount });
+  assert.equal(R.isPlausibleItem(it('卵', 250)), true);
+  assert.equal(R.isPlausibleItem(it('じゃがいも (メークイ', 298)), true);
+  assert.equal(R.isPlausibleItem(it('消費税（外税）', 91)), true);
+  assert.equal(R.isPlausibleItem(it('バーコード割引 30%', -194)), true);
+  assert.equal(R.isPlausibleItem(it('YSSNSRSSNN', 250)), false);
+  assert.equal(R.isPlausibleItem(it('らら NO SNS NCAACNTNNRN', 8610)), false);
+  assert.equal(R.isPlausibleItem(it('牛乳', 1)), false, '1円は読み間違いの疑い');
+});
+
+test('一部だけ読めた結果は、読めた明細が半分以上なら採用・半分未満なら不採用', () => {
+  const half = R.parseReceiptText('店\n2026/10/25\n牛乳 \\198\nABCDEFG \\300\n合計 \\498', { now: NOW });
+  assert.equal(R.isReadable(half), true, '2行中1行 = 半分');
+  const bad = R.parseReceiptText('店\n2026/10/25\n牛乳 \\198\nABCDEFG \\300\nQWERTYU \\400\n合計 \\898', { now: NOW });
+  assert.equal(R.isReadable(bad), false, '3行中1行');
+});
+
+test('偶然それらしい1行（「1 し届 ¥6」）だけの出力は、根拠が足りず「読めた」と判定しない', () => {
+  const lone = R.parseReceiptText('びび政!半テア壮寿!\n1     し届       6\n', { now: NOW });
+  assert.equal(lone.items.length, 1);
+  assert.equal(R.isReadable(lone), false);
+  // 1品だけの本物のレシート（日付と合計が読めている）は通る
+  assert.equal(R.isReadable(R.parseReceiptText('店\n2026/10/25\n牛乳 \\198\n合計 \\198', { now: NOW })), true);
+  // 日付・合計が読めなくても、読めた明細が3行以上あれば通る（確認画面で直せる）
+  assert.equal(R.isReadable(R.parseReceiptText('店\n牛乳 \\198\n卵 \\250\n豆腐 \\100', { now: NOW })), true);
+  // 2行だけで日付も合計もないものは、根拠が足りない
+  assert.equal(R.isReadable(R.parseReceiptText('店\n牛乳 \\198\n卵 \\250', { now: NOW })), false);
+});

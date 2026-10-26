@@ -272,6 +272,7 @@ dialog::backdrop { background: rgba(2, 6, 14, .72); backdrop-filter: blur(5px); 
 .rtotal { display: flex; align-items: baseline; gap: 12px; justify-content: flex-end; }
 .rtotal b { font: 600 1.6rem var(--font-mono); color: var(--accent); }
 .raw { white-space: pre-wrap; word-break: break-all; background: rgba(4, 10, 20, .85); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; font: .82rem/1.5 var(--font-mono); max-height: 240px; overflow: auto; }
+.scan-preview { display: block; max-width: 100%; max-height: 42vh; margin: 6px auto; object-fit: contain; background: #000; border: 1px solid var(--line); border-radius: var(--radius); }
 /* 設定の選択肢 */
 .opts { display: grid; gap: 8px; }
 .opt { position: relative; display: flex; gap: 12px; align-items: flex-start; min-height: var(--tap); padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(4, 10, 20, .6); cursor: pointer; }

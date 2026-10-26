@@ -589,6 +589,68 @@ await scenario('読み取り設定: モードを選ぶと保存され、再読�
   assert.equal(await page.locator('#receipt-dialog [data-testid=form-total]').innerText(), '¥1,790');
 });
 
+
+// 写真を回転させたテスト画像（iPadの写真が90°回って読まれる状況の再現）。キャンバスで回して保存する。
+async function rotatedFixture(browser, deg, name) {
+  const ctx = await browser.newContext();
+  const pg = await ctx.newPage();
+  const b64 = fs.readFileSync(FIXTURE).toString('base64');
+  const out = await pg.evaluate(async ({ b64, deg }) => {
+    const img = new Image(); img.src = `data:image/png;base64,${b64}`; await img.decode();
+    const swap = deg === 90 || deg === 270;
+    const c = document.createElement('canvas'); c.width = swap ? img.height : img.width; c.height = swap ? img.width : img.height;
+    const x = c.getContext('2d'); x.fillStyle = '#111'; x.fillRect(0, 0, c.width, c.height);
+    x.translate(c.width / 2, c.height / 2); x.rotate((deg * Math.PI) / 180); x.drawImage(img, -img.width / 2, -img.height / 2);
+    return c.toDataURL('image/png').split(',')[1];
+  }, { b64, deg });
+  await ctx.close();
+  const file = path.join(tmp, name);
+  fs.writeFileSync(file, Buffer.from(out, 'base64'));
+  return file;
+}
+
+await scenario('向きが違う写真（右へ90°回っている）でも、自動モードが向きを直して読み取る', async (page) => {
+  const rotated = await rotatedFixture(browser, 90, 'rot90.png'); // 内容が右へ90°回っている
+  await openScan(page);
+  await page.locator('#scan-file').setInputFiles(rotated);
+  await page.locator('#receipt-dialog').waitFor({ state: 'visible', timeout: 180000 });
+  assert.match(await page.locator('[data-testid=ocr-method]').innerText(), /左へ90°/, '左へ90°回して直した');
+  assert.equal(await page.locator('#receipt-dialog [data-testid=form-total]').innerText(), '¥1,790');
+  assert.ok(await page.locator('#receipt-dialog summary', { hasText: '読み取りに使った画像' }).isVisible(), 'OCRが見た画像を確認できる');
+});
+
+await scenario('読めない写真は、ゴミの表を出さず失敗カード（画像・やり直しボタン）を出す。向きを変えて読み直せる', async (page) => {
+  const rotated = await rotatedFixture(browser, 90, 'rot90b.png');
+  // 「くっきり」1回だけのモード＝自動の向き判定なし。向きが違うので失敗するはず
+  await page.evaluate(() => localStorage.setItem('acp-ocr-settings', JSON.stringify({ mode: 'sharp', crop: true })));
+  await openScan(page);
+  await page.locator('#scan-file').setInputFiles(rotated);
+  const fail = page.locator('[data-testid=scan-fail], #scan-error:not([hidden])');
+  await fail.first().waitFor({ state: 'visible', timeout: 120000 });
+  assert.match(await page.locator('#scan-error').innerText(), /うまく読み取れませんでした/);
+  assert.ok(await page.locator('[data-testid=scan-preview]').isVisible(), 'OCRが見た画像を表示');
+  assert.equal(await page.locator('#receipt-dialog').evaluate((d) => d.open), false, 'ゴミの確認フォームは開かない');
+  // 左へ90°回して読み直すと成功する
+  await page.locator('#scan-error').getByRole('button', { name: '左へ90°回して読み直す' }).click();
+  await page.locator('#receipt-dialog').waitFor({ state: 'visible', timeout: 120000 });
+  assert.equal(await page.locator('#receipt-dialog [data-testid=form-total]').innerText(), '¥1,790');
+});
+
+await scenario('真っ白な画像など、文字がない写真は失敗カードになり、手入力に進める', async (page) => {
+  const blank = path.join(tmp, 'blank.png');
+  const ctx = await browser.newContext(); const pg = await ctx.newPage();
+  const b64 = await pg.evaluate(() => { const c = document.createElement('canvas'); c.width = 600; c.height = 800; const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, 600, 800); return c.toDataURL('image/png').split(',')[1]; });
+  await ctx.close();
+  fs.writeFileSync(blank, Buffer.from(b64, 'base64'));
+  await page.evaluate(() => localStorage.setItem('acp-ocr-settings', JSON.stringify({ mode: 'sharp', crop: true })));
+  await openScan(page);
+  await page.locator('#scan-file').setInputFiles(blank);
+  await page.locator('#scan-error:not([hidden])').waitFor({ state: 'visible', timeout: 120000 });
+  assert.match(await page.locator('#scan-error').innerText(), /うまく読み取れませんでした/);
+  await page.getByRole('button', { name: '手入力にする' }).click();
+  await page.locator('#receipt-dialog').waitFor({ state: 'visible' });
+});
+
 await browser.close();
 server.close();
 const failed = results.filter(([, ok]) => !ok);
