@@ -1,0 +1,17 @@
+{
+  "name": "ai-control-panel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "iPad向けAIコントロールパネル（依存ライブラリなしのPWA）",
+  "scripts": {
+    "start": "node server.mjs",
+    "build": "node build.mjs",
+    "test": "node --test \"tests/unit/*.test.js\"",
+    "test:e2e": "node tests/e2e/run.mjs",
+    "build:pages": "node build.mjs --out docs",
+    "bundle": "node tools/bundle.mjs",
+    "test:all": "npm run build && npm test && npm run test:e2e"
+  },
+  "engines": { "node": ">=20" }
+}

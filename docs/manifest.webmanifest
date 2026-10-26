@@ -1,0 +1,16 @@
+{
+  "name": "AI コントロールパネル",
+  "short_name": "コントロール",
+  "description": "プロジェクトと学習タスクを一元管理するiPad向けパネル",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f4f1ea",
+  "theme_color": "#4f7a64",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
