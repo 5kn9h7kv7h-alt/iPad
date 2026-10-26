@@ -181,3 +181,12 @@ test('「雑費」分類が使え、source: claude も保存できる', () => {
   assert.equal(r.receipt.source, 'claude');
   assert.equal(R.createReceipt({ date: '2026-10-24', items: [{ name: 'a', amount: 1, category: '食費' }], source: 'bogus' }, NOW, 'y').receipt.source, 'manual');
 });
+
+test('分類の基準: 洗剤=日用品 / 食べられる物=食費 / めったに買い換えない物=雑費', () => {
+  for (const n of ['洗濯用洗剤', '食器用洗剤', 'ハンドソープ', 'ティッシュペーパー']) assert.equal(R.categorize(n), '日用品', n);
+  for (const n of ['牛乳', 'トマト', 'カップ麺', 'チョコレート', 'ミネラルウォーター', '冷凍餃子']) assert.equal(R.categorize(n), '食費', n);
+  for (const n of ['フライパン 26cm', 'ごみ箱 45L', 'ゴミ箱', '片手鍋', '包丁', 'マグカップ', '収納ボックス']) assert.equal(R.categorize(n), '雑費', n);
+  // 食べ物と似た語でも、道具は雑費（「フライパン」が「パン」に負けない）
+  assert.equal(R.categorize('フライパン'), '雑費');
+  assert.equal(R.categorize('食パン'), '食費');
+});
