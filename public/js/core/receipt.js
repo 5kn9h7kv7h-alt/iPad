@@ -27,7 +27,7 @@ const KEYWORDS = {
     'シチュー', 'スープ', '小麦粉', '片栗粉', 'パン粉', 'みりん', 'コンソメ', 'ドレッシング', 'ジャム', 'はちみつ', 'ごま', 'おかし', 'せんべい', 'クッキー', 'ビスケット', 'キャンディ', 'グミ', 'ヨーグルト'],
   '外食': ['ランチ', 'ディナー', '定食', 'ドリンク', 'ハンバーガー', 'バーガー', 'ピザ', '寿司', '丼', 'ラテ', 'モーニング', 'お通し', '飲み放題', 'コース', 'フライドポテト', 'ラーメン店'],
   '日用品': ['ティッシュ', 'トイレット', 'ペーパー', '洗剤', '洗濯', '柔軟剤', 'シャンプー', 'リンス', 'コンディショナー', 'ボディソープ', '石鹸', 'せっけん', '歯ブラシ', '歯磨き', '歯みがき', 'スポンジ',
-    'ラップ', 'アルミホイル', 'ごみ袋', 'ゴミ袋', 'ポリ袋', 'レジ袋', '袋', '電池', '電球', 'マスク', 'ハンドソープ', '除菌', '消臭', '芳香', 'ハンガー', 'タオル', '掃除', 'キッチン', '綿棒', 'ナプキン', 'おむつ',
+    'ラップ', 'アルミホイル', '有料レジ', 'ごみ袋', 'ゴミ袋', 'ポリ袋', 'レジ袋', '袋', '電池', '電球', 'マスク', 'ハンドソープ', '除菌', '消臭', '芳香', 'ハンガー', 'タオル', '掃除', 'キッチン', '綿棒', 'ナプキン', 'おむつ',
     'ベビー', 'ペットフード', 'ペット', '油性', 'ライター', 'ゴム手袋', '洗い'],
   '衣服・美容': ['シャツ', 'パンツ', 'ズボン', 'スカート', '靴下', '下着', 'コート', 'ジャケット', '靴', 'シューズ', 'バッグ', '帽子', '手袋', 'マフラー', '化粧', 'ファンデ', '口紅', 'リップ', '乳液', '化粧水', '美容',
     'ヘア', 'カット', 'パーマ', '香水', 'パンスト', 'ストッキング'],
@@ -87,7 +87,7 @@ export function parseYen(raw) {
 const AMT = String.raw`-?[\dlI][\dOolI]{0,2}(?:[.,。][\dOolI]{3})+|-?[\dlI][\dOolI]*`;
 const ITEM_LINE = new RegExp(String.raw`^(.*?)(\s*(?:[¥\\YyWwV*]\s*)?)(${AMT})\s*円?\s*[※*★軽]?(?:\s+[^\s\d]{1,2})?\s*$`);
 const GAP_RE = /[\s¥\\YyWwV*]/;
-const SKIP_LINE = /(小計|合計|総合計|お買上|お買い上|税込|税抜|消費税|内税|外税|対象|お預|お釣|おつり|釣銭|釣り|現金|クレジット|カード|ポイント|点数|電話|tel|レジ(?!袋)|担当|no\.|領収|お支払|支払|割引券|会員|残高|ご利用|様|\d{1,2}:\d{2}|\d{4}[/\-.年]\d{1,2}|〒|http)/i;
+const SKIP_LINE = /(小計|合計|総合計|お買上|お買い上|税込|税抜|消費税|内税|外税|対象|お預|お釣|おつり|釣銭|釣り|現金|クレジット|カード|ポイント|点数|電話|tel|(?<!有料)レジ(?!袋)|担当|no\.|領収|お支払|支払|割引券|会員|残高|ご利用|様|\d{1,2}:\d{2}|\d{4}[/\-.年]\d{1,2}|〒|http)/i;
 const DISCOUNT = /(値引|割引|ディスカウント|クーポン)/;
 const TOTAL_LINE = /(合計|総合計|お買上|お買い上げ|請求|total)/i;
 const TOTAL_EXCLUDE = /(小計|点数|税|内|預|釣)/;
@@ -127,11 +127,16 @@ function parseDate(text, now) {
   return null;
 }
 
+const STORE_WORD = /(ストア|スーパー|マート|薬局|ドラッグ|コンビニ|ホームセンター|百貨店|商店|ファミリーマート|ローソン|セブン|[^\s]店\s*$|店\s*$)/;
+
 function parseStore(lines) {
-  for (const line of lines.slice(0, 8)) {
-    const l = line.trim();
-    if (l.length < 2 || /(tel|電話|〒|http|領収|レシート|\d{4}\s*年|\d+[:：]\d+|^[\d\s\-－ー=*＊]+$)/i.test(l)) continue;
-    if (!/[぀-ヿ一-鿿A-Za-z]/.test(l)) continue;
+  const head = lines.slice(0, 10).map((line) => line.trim().replace(/^[\d\s|｜]+(?=[぀-ヿ一-鿿A-Za-z])/, '')); // 行頭の紙の縁の誤読（0 | など）を除く
+  const plain = (l) => l.length >= 2 && !/(tel|電話|〒|http|領収|レシート|登録番号|\d{4}\s*年|\d+[:：]\d+|^[\d\s\-－ー=*＊]+$)/i.test(l) && /[぀-ヿ一-鿿A-Za-z]/.test(l);
+  // まず「ストア」「店」などを含む行（店名らしい行）を探す。見つからなければ、最初の普通の行
+  const byWord = head.find((l) => plain(l) && STORE_WORD.test(l) && (l.match(/[぀-ヿ一-鿿]/g) || []).length >= 3);
+  if (byWord) return joinCjkSpaces(byWord).slice(0, 40);
+  for (const l of head) {
+    if (!plain(l)) continue;
     const m = l.match(ITEM_LINE);
     if (m && m[3] && !SKIP_LINE.test(l) && Number.isFinite(parseYen(m[3])) && GAP_RE.test(m[2])) continue; // 金額つきの行は店名ではない
     return joinCjkSpaces(l).slice(0, 40);
@@ -139,9 +144,50 @@ function parseStore(lines) {
   return '';
 }
 
+// ---- OCRが付ける「金額だけを数字専用で読み直した結果」の注記 ⟦298⟧ ----
+const ANN_RE = /\s*⟦([^⟧]*)⟧\s*$/;
+// 税区分の記号（外8・内10）がOCRで化けたもの（較の8・菩 28・218・タI8 など）。品名の前に付く短い記号＋数字
+const MARKER_RE = /^(?:[^\s\d]{1,2}\s?[のI]?\s?\d{1,2}|\d{1,3})\s+(?=[぀-ヿ一-鿿])/;
+// 数字の読み間違いの候補（検算で直すのに使う）
+const DIGIT_ALTS = { 0: '869', 1: '7', 2: '7', 3: '85', 4: '9', 5: '683', 6: '580', 7: '12', 8: '0369', 9: '48' };
+
+function splitAnnotation(line) {
+  const m = line.match(ANN_RE);
+  if (!m) return { text: line, ann: NaN };
+  const v = parseYen(m[1]);
+  return { text: line.slice(0, m.index), ann: Number.isFinite(v) && Math.abs(v) < MAX_YEN ? v : NaN };
+}
+
+/** 1〜2桁の読み間違いを直せば、合計が検算(target)に合うか探す。いちばん小さな修正を採用し、同点なら採用しない */
+function repairByChecksum(amounts, target, allowGap) {
+  const alts = (n) => {
+    const str = String(Math.abs(n));
+    const out = [];
+    for (let i = 0; i < str.length; i++) for (const d of DIGIT_ALTS[str[i]] || '') out.push({ value: Math.sign(n || 1) * Number(str.slice(0, i) + d + str.slice(i + 1)), pos: i });
+    return out;
+  };
+  const base = amounts.reduce((a, x) => a + x, 0);
+  const okGap = (sum) => (allowGap ? target - sum >= 0 && target - sum <= 99 : sum === target);
+  let best = null, tie = false;
+  const consider = (changes, sum, edits) => {
+    if (!okGap(sum)) return;
+    const gap = target - sum;
+    if (!best || changes < best.changes || (changes === best.changes && gap < best.gap)) { best = { changes, gap, edits }; tie = false; }
+    else if (changes === best.changes && gap === best.gap) tie = true;
+  };
+  if (okGap(base)) return null; // すでに合っている
+  const cand = amounts.map(alts);
+  for (let i = 0; i < amounts.length; i++) for (const c of cand[i]) consider(1, base - amounts[i] + c.value, [[i, c.value]]);
+  if (!best) {
+    for (let i = 0; i < amounts.length; i++) for (let j = i + 1; j < amounts.length; j++) for (const ci of cand[i]) for (const cj of cand[j]) consider(2, base - amounts[i] - amounts[j] + ci.value + cj.value, [[i, ci.value], [j, cj.value]]);
+  }
+  return best && !tie ? best : null;
+}
+
 /**
  * OCR結果などのテキストから、日付・店名・明細・合計を取り出す。
  * 完全には読めない前提で、warnings に注意点を入れて返す（UIで必ず確認・修正する）。
+ * 行末の ⟦金額⟧ は、金額の列だけを数字専用で読み直した結果（あれば、行末の化けた金額より優先する）。
  */
 export function parseReceiptText(rawText, { now = new Date(), rules = [] } = {}) {
   const text = String(rawText ?? '').normalize('NFKC');
@@ -151,69 +197,113 @@ export function parseReceiptText(rawText, { now = new Date(), rules = [] } = {})
   const date = parseDate(text, now);
   if (!date) warnings.push('日付を読み取れませんでした。今日の日付を入れています。確認してください。');
   else if (guessedYear) warnings.push('年を読み取れなかったため、月と日から日付を補いました。確認してください。');
-  const store = parseStore(lines);
+  const store = parseStore(lines.map((l) => l.replace(ANN_RE, '')));
+
+  // 前処理: 注記の分離・行末の金額の補正。税区分の記号が揃っているレシートかを調べる
+  const prepared = lines.map((raw) => {
+    const { text: t, ann } = splitAnnotation(raw.trim());
+    return { l: fixAmountTail(t), ann };
+  });
+  let candidates = 0, markers = 0;
+  for (const { l, ann } of prepared) {
+    if (/小計|合計|税額/.test(l)) break;
+    if (SKIP_LINE.test(l) || DISCOUNT.test(l) || /^\d{4,}/.test(l)) continue;
+    const m = l.match(ITEM_LINE);
+    const hasAmt = Number.isFinite(ann) || (m && Number.isFinite(parseYen(m[3])));
+    if (!hasAmt || (l.match(/[぀-ヿ一-鿿]/g) || []).length < 2) continue;
+    candidates++;
+    if (MARKER_RE.test(l)) markers++;
+  }
+  const markerMode = markers >= 3 && markers >= candidates * 0.6;
 
   const items = [];
-  let total = null;
   const totals = [];
-  let subtotal = null, outerTax = 0, running = 0, closed = false;
   const pending = []; // 品名らしいのに金額を読めなかった行（小計との差額で推定する候補）
-  let seenDate = false;
-  for (const line of lines) {
-    const l = fixAmountTail(line.trim());
+  let subtotal = null, outerTax = 0, closed = false, seenDate = false;
+  const running = () => items.reduce((a, i) => a + i.amount, 0);
+
+  // 小計（または、小計らしい行）で明細を締める。読み間違い・読み落としは、検算で直す／補う（必ず警告する）
+  const closeWith = (v) => {
+    if (!items.length) return;
+    let sum = running();
+    if (v !== sum) {
+      const fix = repairByChecksum(items.map((i) => i.amount), v, pending.length > 0);
+      if (fix) {
+        for (const [i, val] of fix.edits) { warnings.push(`「${items[i].name}」の金額を ¥${items[i].amount.toLocaleString('ja-JP')} → ¥${val.toLocaleString('ja-JP')} に直しました（小計と合わせるため。読み間違いの疑い）。確認してください。`); items[i].amount = val; }
+        sum = running();
+      }
+    }
+    if (v > sum) {
+      const gap = v - sum;
+      if (pending.length === 1) {
+        const p = pending[0];
+        items.splice(p.at, 0, { name: p.name, amount: gap, category: 'その他', _discount: false });
+        warnings.push(`「${p.name}」の金額を読み取れなかったため、小計との差額 ¥${gap.toLocaleString('ja-JP')} と推定しました。確認してください。`);
+      } else if (gap <= v * 0.5) {
+        items.push({ name: '（読み取れなかった明細）', amount: gap, category: 'その他', _discount: false });
+        warnings.push(`明細の合計が小計より ¥${gap.toLocaleString('ja-JP')} 少ないため、「読み取れなかった明細」として足しました。レシートを見て直してください。`);
+      }
+    } else if (v < sum) {
+      warnings.push(`明細の合計（¥${sum.toLocaleString('ja-JP')}）が小計（¥${v.toLocaleString('ja-JP')}）より多いです。読み間違いの行が混ざっていないか確認してください。`);
+    }
+    subtotal = v;
+    closed = true;
+  };
+
+  for (const { l, ann } of prepared) {
     if (/\d{1,2}\s*[月朋用]\s*\d{1,2}\s*日|\d{4}[/\-.年]\d{1,2}/.test(l)) seenDate = true;
+    const m = l.match(ITEM_LINE);
+    const lineAmt = m ? parseYen(m[3]) : NaN;
+    const amt = Number.isFinite(ann) && ann !== 0 ? ann : lineAmt; // 数字専用の読み直しを優先
+
     if (TOTAL_LINE.test(l) && !TOTAL_EXCLUDE.test(l)) {
-      const m = l.match(ITEM_LINE);
-      const v = m ? parseYen(m[3]) : NaN;
-      if (Number.isFinite(v) && v > 0 && v <= MAX_YEN) { totals.push(v); closed = true; } // 合計より後ろは明細ではない
+      if (Number.isFinite(amt) && amt > 0 && amt <= MAX_YEN) { totals.push(amt); closed = true; } // 合計より後ろは明細ではない
       continue;
     }
     if (/小計/.test(l)) {
-      const m = l.match(ITEM_LINE);
-      const v = m ? parseYen(m[3]) : NaN;
-      // 小計が「ここまでの明細の合計」と一致したら、明細はここまで（後ろは税・支払いの行）
-      if (Number.isFinite(v) && v > 0 && v !== running && pending.length === 1 && v > running && v - running <= MAX_YEN) {
-        // 金額を読めなかった行がちょうど1行なら、小計との差額をその行の金額と推定する（必ず警告して確認してもらう）
-        const p = pending[0];
-        const gap = v - running;
-        items.splice(p.at, 0, { name: p.name, amount: gap, category: 'その他', _discount: false });
-        running = v;
-        warnings.push(`「${p.name}」の金額を読み取れなかったため、小計との差額 ¥${gap.toLocaleString('ja-JP')} と推定しました。確認してください。`);
-      }
-      if (Number.isFinite(v) && v > 0 && v === running) { subtotal = v; closed = true; }
+      if (Number.isFinite(amt) && amt > 0 && amt <= MAX_YEN && !closed) closeWith(amt);
       continue;
     }
-    if (/外税/.test(l)) { // 外税額の行。末尾の金額を集める（税率の「8」「10%」は金額として読まない）
-      const m = l.match(ITEM_LINE);
-      const v = m ? parseYen(m[3]) : NaN;
-      if (Number.isFinite(v) && v > 0 && v < MAX_YEN) outerTax += v;
+    if (/(外税|税額)/.test(l) && !/対象|内消費|内税/.test(l)) { // 外税額の行（税率の「8」「10%」は金額として読まない）
+      if (Number.isFinite(amt) && amt > 0 && amt < MAX_YEN) outerTax += amt;
       continue;
     }
     if (closed) continue;
     if (!DISCOUNT.test(l) && SKIP_LINE.test(l)) continue;
-    const m = l.match(ITEM_LINE);
-    if (!m || !Number.isFinite(parseYen(m[3]))) {
-      // 金額の欠けた品名らしい行を候補に覚えておく（日付より後・日本語2文字以上・数字始まりでない）
-      const cand = joinCjkSpaces(l).replace(/^[外内]\s?\d{1,2}\s+/, '').replace(/\s+[A-Z]{1,2}$/, '').replace(/^[・*※★\s]+|[・*※★\s]+$/g, '');
-      if (seenDate && !/^\d/.test(cand) && (cand.match(/[぀-ヿ一-鿿]/g) || []).length >= 2 && cand.length <= 40) pending.push({ name: cand, at: items.length });
+
+    const isMarkerLine = MARKER_RE.test(l);
+    // 税区分の記号が揃っているレシートでは、記号のない行（割引を除く）は明細ではない。金額のある行は「小計らしい行」として明細を締める
+    if (markerMode && !isMarkerLine && !DISCOUNT.test(l)) {
+      if (items.length && Number.isFinite(amt) && amt > 0 && amt <= MAX_YEN && (l.match(/[぀-ヿ一-鿿]/g) || []).length <= 2) closeWith(amt);
       continue;
     }
-    let name = joinCjkSpaces(m[1].trim())
-      .replace(/^[外内]\s?\d{1,2}\s+/, '') // 税区分の記号（外8 / 内10）
-      .replace(/^\d{6,}\s*/, '').replace(/\s+[A-Z]$/, '') // 商品コード・行末の区分記号（J など）
-      .replace(/^[・*※★]+|[・*※★\s]+$/g, '');
+
+    let name, amount, sepHasGap = true;
+    if (m && Number.isFinite(lineAmt)) {
+      name = m[1]; amount = Number.isFinite(ann) && ann !== 0 ? ann : lineAmt; sepHasGap = GAP_RE.test(m[2]);
+    } else if (Number.isFinite(ann) && ann !== 0) {
+      name = l.replace(/[\s¥\\YyWwVMmv*|()\[\]\d.,\-~oO]+$/, ''); amount = ann; // 行末の金額が化けた行
+    } else {
+      // 金額の欠けた品名らしい行を候補に覚えておく（日付より後・日本語2文字以上・数字始まりでない）
+      const cand = joinCjkSpaces(l.split(/\s{2,}/)[0]).replace(MARKER_RE, '').replace(/^[外内]\s?\d{1,2}\s+/, '').replace(/\s+[A-Za-z]{1,2}$/, '').replace(/[\s。、.|]+$/, '').replace(/^[・*※★\s]+/, '');
+      if (seenDate && !/^\d/.test(cand) && (cand.match(/[぀-ヿ一-鿿]/g) || []).length >= 2 && cand.length <= 40 && (!markerMode || isMarkerLine)) pending.push({ name: cand, at: items.length });
+      continue;
+    }
+    name = joinCjkSpaces(String(name).trim())
+      .replace(MARKER_RE, '') // 税区分の記号（外8 / 内10 / 化けたもの）
+      .replace(/^[外内]\s?\d{1,2}\s+/, '')
+      .replace(/^\d{6,}\s*/, '').replace(/\s+[A-Za-z]{1,2}$/, '') // 商品コード・行末の区分記号（J など）
+      .replace(/^[ー－―\-]{2,}\s*/, '').replace(/^[・*※★\s]+|[・*※★\s|]+$/g, '');
     if (/[¥\\]\s*\d/.test(name) || /^\d{4,}/.test(name) || /[ー－―=＝_-]{3,}/.test(name)) continue; // 金額が文字化けした行・レジ番号・区切り線
-    const sepHasGap = GAP_RE.test(m[2]);
     if (!sepHasGap && /[\d\-/:.,]$/.test(name)) continue; // 住所・電話番号・日付の端数を明細にしない
     if (!name || !/[぀-ヿ一-鿿A-Za-z]/.test(name) || name.length > 100) continue;
-    let amount = parseYen(m[3]);
     if (!Number.isFinite(amount) || amount === 0 || Math.abs(amount) > MAX_YEN) continue;
     const isDiscount = DISCOUNT.test(name);
     if (isDiscount) amount = -Math.abs(amount); // OCRがマイナスを落としても割引は負にする
     items.push({ name, amount, category: 'その他', _discount: isDiscount });
-    running += amount;
   }
-  if (totals.length) total = Math.max(...totals);
+  const total = totals.length ? Math.max(...totals) : null;
+  let finalTotal = total;
 
   let prev = null;
   for (const it of items) {
@@ -225,24 +315,24 @@ export function parseReceiptText(rawText, { now = new Date(), rules = [] } = {})
   // 外税のレシート: 明細の合計=小計 で、合計との差（または外税額）が税として妥当なら、消費税の行を足して支払額に合わせる
   let sum = items.reduce((a, i) => a + i.amount, 0);
   if (items.length && subtotal !== null && sum === subtotal) {
-    const tax = total !== null && total > subtotal ? total - subtotal : outerTax;
+    const tax = finalTotal !== null && finalTotal > subtotal ? finalTotal - subtotal : outerTax;
     if (tax > 0 && tax <= Math.ceil(subtotal * 0.12)) {
       const byCat = new Map();
       for (const it of items) if (it.amount > 0) byCat.set(it.category, (byCat.get(it.category) || 0) + it.amount);
       const dominant = [...byCat.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || 'その他';
       items.push({ name: '消費税（外税）', amount: tax, category: dominant });
       sum += tax;
-      if (total === null) { total = sum; warnings.push('合計の行を読み取れなかったため、小計と外税額から合計を計算しました。確認してください。'); }
+      if (finalTotal === null) { finalTotal = sum; warnings.push('合計の行を読み取れなかったため、小計と外税額から合計を計算しました。確認してください。'); }
     }
   }
 
   if (!items.length) warnings.push('明細を読み取れませんでした。手入力で追加してください。');
-  if (total !== null && items.length && sum !== total) warnings.push(`明細の合計（¥${sum.toLocaleString('ja-JP')}）がレシートの合計（¥${total.toLocaleString('ja-JP')}）と一致しません。読み間違いや抜けがないか確認してください。`);
-  if (total === null && items.length) warnings.push('合計の行を読み取れませんでした。明細の合計を使います。');
+  if (finalTotal !== null && items.length && sum !== finalTotal) warnings.push(`明細の合計（¥${sum.toLocaleString('ja-JP')}）がレシートの合計（¥${finalTotal.toLocaleString('ja-JP')}）と一致しません。読み間違いや抜けがないか確認してください。`);
+  if (finalTotal === null && items.length) warnings.push('合計の行を読み取れませんでした。明細の合計を使います。');
 
   return {
-    date: date || todayStr(now), dateFound: !!date, store, items, total: total ?? sum, warnings,
-    totalFound: total !== null, sumMatches: items.length > 0 && ((total !== null && sum === total) || (total === null && subtotal !== null && sum === subtotal)),
+    date: date || todayStr(now), dateFound: !!date, store, items, total: finalTotal ?? sum, warnings,
+    totalFound: finalTotal !== null, sumMatches: items.length > 0 && ((finalTotal !== null && sum === finalTotal) || (finalTotal === null && subtotal !== null && sum === subtotal)),
   };
 }
 

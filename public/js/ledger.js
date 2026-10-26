@@ -157,7 +157,7 @@ export function createLedger(env) {
         <div class="rtotal"><span>合計</span><b id="rf-total" data-testid="form-total">¥0</b>${parsed?.total != null && parsed.items.length ? `<span class="muted">レシート記載: ${yen(parsed.total)}</span>` : ''}</div>
         <div id="rf-errors" class="err" role="alert"></div>
         ${base.preview ? `<details class="examples"><summary>読み取りに使った画像を見る</summary><img class="scan-preview" alt="読み取りに使った画像" src="${base.preview}"></details>` : ''}
-        ${base.rawText ? `<details class="examples"><summary>読み取ったテキストを見る</summary><pre class="raw">${esc(base.rawText)}</pre></details>` : ''}
+        ${base.rawText ? `<details class="examples"><summary>読み取ったテキストを見る（⟦ ⟧は金額だけを読み直した結果）</summary><pre class="raw">${esc(base.rawText)}</pre></details>` : ''}
         <div class="form-actions">${receipt ? '<button type="button" class="btn danger" data-act="delete">削除</button>' : ''}<button type="submit" class="btn primary">保存</button></div>
       </form>`;
     const form = $('#receipt-form', dlg);

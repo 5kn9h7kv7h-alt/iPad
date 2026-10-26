@@ -174,10 +174,12 @@ export async function recognizeImage(file, onProgress = () => {}, settings = loa
       stage = variants.length > 1 ? `（${i + 1}/${variants.length}・${v.name}）` : '';
       const canvas = await prepareImage(file, v);
       await worker.setParameters({ tessedit_pageseg_mode: v.psm, preserve_interword_spaces: '1' });
-      const { data } = await worker.recognize(canvas);
-      const score = scoreParse(parseReceiptText(data.text || ''));
+      const { data } = await worker.recognize(canvas, {}, { blocks: true });
+      let text = data.text || '';
+      try { text = (await annotateAmounts(worker, canvas, data, v.psm)) || text; } catch (e) { console.warn('amount pass skipped', e); }
+      const score = scoreParse(parseReceiptText(text));
       tried.push({ name: v.name, score, confidence: Math.round(data.confidence ?? 0) });
-      if (!best || score > best.score) best = { score, text: data.text || '', confidence: data.confidence ?? null, method: v.name, canvas };
+      if (!best || score > best.score) best = { score, text, confidence: data.confidence ?? null, method: v.name, canvas };
       if (score >= 100) break; // 明細の合計がレシートの合計と一致したので十分
     }
   } finally {
@@ -195,4 +197,39 @@ function previewOf(canvas) {
     c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
     return c.toDataURL('image/jpeg', 0.7);
   } catch { return ''; }
+}
+
+// ---- 金額の列だけを、数字専用で読み直す ----
+// 全体を読む設定だと ¥ や 6/B/5 の取り違えが多い。右側の金額の列だけを「数字・, . ¥ -」に限定して読むと、ずっと正確になる。
+// 行の縦位置で全体の読み取りと結びつけ、各行の末尾に ⟦金額⟧ を付ける（解析側が、行末の化けた金額より優先して使う）。
+function collectLines(data) {
+  const out = [];
+  for (const b of data.blocks || []) for (const p of b.paragraphs || []) for (const l of p.lines || []) out.push({ text: (l.text || '').replace(/\s+$/, ''), y0: l.bbox.y0, y1: l.bbox.y1 });
+  return out.sort((a, b) => a.y0 - b.y0);
+}
+
+async function annotateAmounts(worker, canvas, data, psm) {
+  const full = collectLines(data);
+  if (full.length < 3) return null;
+  const x0 = Math.round(canvas.width * 0.62);
+  const strip = document.createElement('canvas');
+  strip.width = canvas.width - x0; strip.height = canvas.height;
+  strip.getContext('2d').drawImage(canvas, x0, 0, strip.width, canvas.height, 0, 0, strip.width, canvas.height);
+  await worker.setParameters({ tessedit_char_whitelist: '0123456789,.¥-', tessedit_pageseg_mode: '6' });
+  let digits;
+  try { digits = collectLines((await worker.recognize(strip, {}, { blocks: true })).data); }
+  finally { await worker.setParameters({ tessedit_char_whitelist: '', tessedit_pageseg_mode: psm }); }
+  const used = new Set();
+  return full.map((l) => {
+    let best = -1, bestOv = 0;
+    digits.forEach((d, j) => {
+      if (used.has(j)) return;
+      const ov = Math.min(l.y1, d.y1) - Math.max(l.y0, d.y0);
+      const ratio = ov / Math.max(1, Math.min(l.y1 - l.y0, d.y1 - d.y0));
+      if (ratio >= 0.45 && ratio > bestOv) { best = j; bestOv = ratio; }
+    });
+    if (best < 0) return l.text;
+    used.add(best);
+    return `${l.text}  ⟦${digits[best].text.replace(/\s+/g, '')}⟧`;
+  }).join('\n');
 }

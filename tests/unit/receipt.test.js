@@ -319,3 +319,73 @@ test('偶然それらしい1行（「1 し届 ¥6」）だけの出力は、根�
   // 2行だけで日付も合計もないものは、根拠が足りない
   assert.equal(R.isReadable(R.parseReceiptText('店\n牛乳 \\198\n卵 \\250', { now: NOW })), false);
 });
+
+// iPadで撮った実写真の、1回目のOCR出力（行末の ⟦…⟧ は、金額の列だけを数字専用で読み直した結果）。
+// 店名・電話・番号はダミーに差し替え、誤読や紙の縁のノイズはそのまま。外税のレシートで、
+// 税区分の「外8」が 218 / タI8 に、「小計」が「線」に、「合計」の行が文字化けし、¥646 が ¥546 と読まれ、¥4 の行は金額が欠けている。
+const IPAD_ANNOTATED = `| |
+コー 中"やらAF
+登録番号 : 0000000000000  ⟦028268⟧
+0     サンプルストア ほげ店
+0         TEL (0000)00-0000  ⟦44-7612⟧
+凍 本日はご来店有難うどざいます。
+ご綿書>
+較 <026年10月26日(月)16:48 #000001  ⟦48000001⟧
+068001セルフ 068001セルフ  ⟦01⟧
+5689  ⟦5689⟧
+外10 有料レジ病 大 。  J約
+218 じゃがいも (メークイ  \\298  ⟦298⟧
+タI8 さつまいも      M298  ⟦298⟧
+218 人参          \\98  ⟦98⟧
+218 銘柄鶏おね正内    \\B46  ⟦546⟧
+ーー パイサド割引 30% -194  ⟦-194⟧
+小計    間昌III
+線          \\1,150  ⟦1,150⟧
+外税額      8%    v1  ⟦91⟧
+健税額     10%   yO  ⟦0⟧
+買上点数          5点  ⟦5⟧
+とき計二      \\1. っ41  ⟦1.41⟧
+(税率 8%対象人            Mi 237  ⟦1.237⟧
+(内消細科等 8%       0 還  ⟦91⟧
+(税率10%対名         リ  ⟦4⟧
+(内消費税等10%      了  ⟦0⟧
+お予責り wi ここ 上  ⟦.51⟧
+(内商科等 xa  ⟦9⟧
+お釣り          導
+7         \\25()
+8内Bは軽減税率対象商品です
+`;
+
+test('iPad実写真のOCR出力: 検算で¥546→¥646に直し、¥4を推定し、外税を足して合計¥1,241にそろえる（すべて警告つき）', () => {
+  const r = R.parseReceiptText(IPAD_ANNOTATED, { now: NOW });
+  assert.equal(r.date, '2026-10-26');
+  assert.deepEqual(r.items.map((i) => [i.name.replace(/\s+/g, ''), i.amount, i.category]), [
+    ['有料レジ病大', 4, '日用品'], ['じゃがいも(メークイ', 298, '食費'], ['さつまいも', 298, '食費'], ['人参', 98, '食費'],
+    ['銘柄鶏おね正内', 646, '食費'], ['パイサド割引30%', -194, '食費'], ['消費税（外税）', 91, '食費'],
+  ]);
+  assert.equal(r.total, 1241);
+  assert.equal(r.sumMatches, true);
+  assert.ok(r.warnings.some((w) => w.includes('¥546') && w.includes('¥646')), '直した金額は警告する');
+  assert.ok(r.warnings.some((w) => w.includes('有料レジ病大') && w.includes('推定')), '推定した金額は警告する');
+  assert.ok(r.warnings.some((w) => w.includes('外税額')), '合計を計算した旨を警告する');
+});
+
+test('税区分の記号が揃っているレシートでは、記号のない行（税・合計の行の化け）を明細にしない', () => {
+  const r = R.parseReceiptText(IPAD_ANNOTATED, { now: NOW });
+  const names = r.items.map((i) => i.name);
+  assert.ok(!names.some((n) => /バ和線|系 8|月肖/.test(n)));
+  assert.equal(r.items.length, 7);
+});
+
+test('検算で直すのは、1つに決まる場合だけ（同点なら直さない）', () => {
+  // 小計 ¥1,000 に対し 明細 ¥990 + ¥5 : 直し方が複数ある時は、勝手に直さず警告だけにする
+  const r = R.parseReceiptText('店\n2026/10/25\n外8 牛乳 \\990 ⟦990⟧\n外8 卵 \\5 ⟦5⟧\n外8 豆腐 \\3 ⟦3⟧\n小計 \\1,000 ⟦1,000⟧', { now: NOW });
+  assert.ok(r.items.every((i) => i.amount === 990 || i.amount === 5 || i.amount === 3 || i.name.includes('読み取れなかった')));
+});
+
+test('店名: 「ストア」「店」を含む行を優先して選ぶ（先頭行が文字化けしていても）', () => {
+  const r = R.parseReceiptText(IPAD_ANNOTATED, { now: NOW });
+  assert.equal(r.store, 'サンプルストアほげ店');
+  assert.equal(R.parseReceiptText('スーパーまるい 駅前店\nTEL 03-1234-5678\n2026/10/25\n牛乳 100\n合計 100', { now: NOW }).store, 'スーパーまるい駅前店');
+  assert.equal(R.parseReceiptText('ABC商会\n2026/10/25\n牛乳 100\n合計 100', { now: NOW }).store, 'ABC商会', '店を含まなければ最初の行');
+});
