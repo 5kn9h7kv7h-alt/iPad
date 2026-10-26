@@ -423,6 +423,8 @@ await scenario('レシート: 手入力・検証・編集・削除と取り消�
   await page.waitForFunction(() => document.querySelector('[data-testid=month-total]')?.innerText === '¥0');
   await page.locator('#toast button', { hasText: '元に戻す' }).click();
   await page.waitForFunction(() => document.querySelector('[data-testid=month-total]')?.innerText === '¥1,500');
+  // 取り消しの保存が終わってから再読み込みする（画面は先に更新されるため）
+  await page.waitForFunction(() => new Promise((res) => { const r = indexedDB.open('ai-control-panel'); r.onsuccess = () => { const g = r.result.transaction('receipts').objectStore('receipts').count(); g.onsuccess = () => { r.result.close(); res(g.result === 1); }; }; }), null, { polling: 100 });
   // 再読み込み後も残る
   await page.reload();
   await page.waitForSelector('body[data-ready="true"]');

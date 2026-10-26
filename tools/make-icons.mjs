@@ -16,7 +16,7 @@ function chunk(type, data) {
   return Buffer.concat([len, td, c]);
 }
 
-const BG = [79, 122, 100], FG = [255, 253, 248], LEAF = [79, 122, 100];
+const BG = [5, 8, 15], FG = [45, 226, 255], LEAF = [5, 8, 15];
 
 function pixel(u, v) {
   // 中心(0.5,0.5)の白い円＋緑の「葉」型（2つの円の共通部分）で、Study Groveを連想させる単純な図形

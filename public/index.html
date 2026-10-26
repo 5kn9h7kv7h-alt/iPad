@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#4f7a64">
+<meta name="theme-color" content="#05080f">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="コントロール">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>AI コントロールパネル</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png" type="image/png">
@@ -15,15 +15,40 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+<div class="bg" aria-hidden="true">
+  <div class="bg-glow g1"></div><div class="bg-glow g2"></div>
+  <div class="bg-grid"></div>
+  <canvas id="bg-canvas"></canvas>
+  <div class="bg-scan"></div>
+</div>
+
+<header class="hud" aria-hidden="true">
+  <div class="hud-row">
+    <span class="hud-l"><i class="hud-dot"></i>SYS ONLINE</span>
+    <span class="hud-c">AI//CTRL-PANEL</span>
+    <span class="hud-r"><span id="hud-date">---</span><b id="hud-clock">--:--:--</b></span>
+  </div>
+  <div class="ticker"><div class="ticker-track">
+    <span>NODE-01 ▸ STORAGE: LOCAL INDEXEDDB ▸ OCR: ON-DEVICE ▸ UPLINK: NONE ▸ CODE EXEC: DISABLED ▸ CLOUD SYNC: NOT INSTALLED ▸ VOICE: BROWSER-NATIVE ▸ <em id="hud-up">UP 00:00</em> ▸ </span>
+    <span>NODE-01 ▸ STORAGE: LOCAL INDEXEDDB ▸ OCR: ON-DEVICE ▸ UPLINK: NONE ▸ CODE EXEC: DISABLED ▸ CLOUD SYNC: NOT INSTALLED ▸ VOICE: BROWSER-NATIVE ▸ UP -- ▸ </span>
+  </div></div>
+</header>
+
 <main id="app" class="app" aria-live="polite"></main>
 
 <nav class="tabbar" aria-label="メインメニュー">
-  <a href="#/" data-nav="home"><span aria-hidden="true">🏠</span>ホーム</a>
-  <a href="#/tasks" data-nav="tasks"><span aria-hidden="true">✅</span>タスク</a>
-  <a href="#/ledger" data-nav="ledger"><span aria-hidden="true">🧾</span>家計簿</a>
-  <a href="#/settings" data-nav="settings"><span aria-hidden="true">⚙️</span>設定</a>
+  <a href="#/" data-nav="home" data-en="HOME">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.5 12 4l8 7.5V20a1 1 0 0 1-1 1h-4.5v-5.5h-5V21H5a1 1 0 0 1-1-1z"/></svg>ホーム</a>
+  <a href="#/tasks" data-nav="tasks" data-en="TASKS">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="m8.5 12.5 2.5 2.5 4.5-5.5"/></svg>タスク</a>
+  <a href="#/ledger" data-nav="ledger" data-en="LEDGER">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>家計簿</a>
+  <a href="#/settings" data-nav="settings" data-en="SYSTEM">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"/></svg>設定</a>
 </nav>
-<button id="mic-fab" class="fab" type="button" aria-label="音声・テキスト指示を開く">🎤</button>
+<button id="mic-fab" class="fab" type="button" aria-label="音声・テキスト指示を開く">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg>
+</button>
 
 <div id="toast" class="toast" role="status" hidden></div>
 
@@ -34,7 +59,7 @@
 <dialog id="choice-dialog" class="sheet small" aria-labelledby="choice-title"></dialog>
 <dialog id="voice-dialog" class="sheet" aria-labelledby="voice-title">
   <div class="sheet-head">
-    <h2 id="voice-title">音声・テキスト指示</h2>
+    <h2 id="voice-title" data-en="VOICE LINK">音声・テキスト指示</h2>
     <button type="button" class="btn ghost" data-close>閉じる</button>
   </div>
   <p id="voice-support" class="muted"></p>

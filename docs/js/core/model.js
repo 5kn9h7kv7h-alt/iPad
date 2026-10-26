@@ -18,13 +18,13 @@ export const REQUEST_STATUS_LABEL = { waiting: '待機中', running: '実行中'
 export const APPROVAL_LABEL = { pending: '承認待ち', approved: '承認済み', rejected: '却下' };
 
 export const PROJECTS = [
-  { id: 'study-grove', name: 'Study Grove', icon: '🌿', color: '#5b8a72',
+  { id: 'study-grove', name: 'Study Grove', icon: '🌿', code: 'SG', color: '#3dffb0',
     aliases: ['Study Grove', 'スタディグローブ', 'スタディーグローブ', 'スタディグルーブ', 'スタディーグルーブ'] },
-  { id: 'sim-game', name: 'シミュレーションゲーム', icon: '🎮', color: '#b88a4a',
+  { id: 'sim-game', name: 'シミュレーションゲーム', icon: '🎮', code: 'SIM', color: '#ffb454',
     aliases: ['シミュレーションゲーム', 'ゲーム制作', 'ゲーム開発', 'ゲーム'] },
-  { id: 'materials-informatics', name: 'Materials Informatics', icon: '🔬', color: '#5a7fa6',
+  { id: 'materials-informatics', name: 'Materials Informatics', icon: '🔬', code: 'MI', color: '#2de2ff',
     aliases: ['Materials Informatics', 'マテリアルズインフォマティクス', 'マテリアルインフォマティクス'] },
-  { id: 'university', name: '大学の勉強', icon: '📚', color: '#8a6fa0',
+  { id: 'university', name: '大学の勉強', icon: '📚', code: 'UNI', color: '#b39cff',
     aliases: ['大学の勉強', '大学勉強', '大学'] },
 ];
 

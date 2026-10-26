@@ -5,6 +5,7 @@ import { buildBackup, parseBackup } from './core/backup.js';
 import * as R from './core/receipt.js';
 import { createLedger } from './ledger.js';
 import { saveFile } from './core/save.js';
+import { startFx } from './fx.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -62,25 +63,29 @@ const confirmDialog = async (title, message, okLabel, danger = true) =>
 async function saveTask(task) {
   const i = state.tasks.findIndex((t) => t.id === task.id);
   if (i >= 0) state.tasks[i] = task; else state.tasks.push(task);
+  const written = state.repo.putTask(task); // 先に書き込みを開始（描画で遅れて、直後に閉じられても失われにくくする）
   render();
-  await state.repo.putTask(task);
+  await written;
 }
 async function removeTask(id) {
   state.tasks = state.tasks.filter((t) => t.id !== id);
   if (state.selectedTaskId === id) state.selectedTaskId = null;
+  const written = state.repo.deleteTask(id);
   render();
-  await state.repo.deleteTask(id);
+  await written;
 }
 async function saveRequest(req) {
   const i = state.requests.findIndex((r) => r.id === req.id);
   if (i >= 0) state.requests[i] = req; else state.requests.push(req);
+  const written = state.repo.putRequest(req);
   render();
-  await state.repo.putRequest(req);
+  await written;
 }
 async function removeRequest(id) {
   state.requests = state.requests.filter((r) => r.id !== id);
+  const written = state.repo.deleteRequest(id);
   render();
-  await state.repo.deleteRequest(id);
+  await written;
 }
 
 async function setTaskDone(id, done) {
@@ -123,10 +128,10 @@ function taskRow(t, showProject) {
     <button class="task-main" type="button" data-action="open-task" data-id="${esc(t.id)}">
       <span class="title">${esc(t.title)}</span>
       <span class="meta">
-        ${showProject && p ? `<span class="badge proj">${p.icon} ${esc(p.name)}</span>` : ''}
-        ${due ? `<span class="badge ${due.cls}">📅 ${esc(due.text)}</span>` : ''}
+        ${showProject && p ? `<span class="badge proj">${p.code} ${esc(p.name)}</span>` : ''}
+        ${due ? `<span class="badge ${due.cls}">${esc(due.text)}</span>` : ''}
         ${t.priority === 'high' ? '<span class="badge high">優先度 高</span>' : t.priority === 'low' ? '<span class="badge">優先度 低</span>' : ''}
-        ${t.note ? '<span class="badge">📝 メモ</span>' : ''}
+        ${t.note ? '<span class="badge">メモ</span>' : ''}
       </span>
     </button></li>`;
 }
@@ -149,20 +154,20 @@ function homeView() {
     const s = M.projectStats(state.tasks, p.id, td);
     const nd = s.next ? dueInfo(s.next) : null;
     return `<a class="card" style="${projectStyle(p.id)}" href="#/project/${p.id}" data-testid="card-${p.id}">
-      <div class="card-head"><div class="card-icon" aria-hidden="true">${p.icon}</div><div><h3>${esc(p.name)}</h3>
+      <div class="card-head"><div class="card-icon" aria-hidden="true">${p.code}</div><div><h3>${esc(p.name)}</h3>
         <span class="muted">${s.total ? `進捗 ${s.percent}%` : 'タスクなし'}</span></div></div>
       <div class="progress" role="progressbar" aria-valuenow="${s.percent}" aria-valuemin="0" aria-valuemax="100" aria-label="${esc(p.name)}の進捗"><i style="width:${s.percent}%"></i></div>
       <div class="card-meta"><span>未完了 <b>${s.open}</b></span><span>完了 <b>${s.done}</b></span>${s.overdue ? `<span style="color:var(--danger)">期限切れ <b>${s.overdue}</b></span>` : ''}</div>
-      <div class="card-next"><small>次にやること</small>${s.next ? `${esc(s.next.title)}${nd ? ` <span class="badge ${nd.cls}">${esc(nd.text)}</span>` : ''}` : '<span class="muted">未完了のタスクはありません</span>'}</div>
+      <div class="card-next"><small data-en="Next Action">次にやること</small>${s.next ? `${esc(s.next.title)}${nd ? ` <span class="badge ${nd.cls}">${esc(nd.text)}</span>` : ''}` : '<span class="muted">未完了のタスクはありません</span>'}</div>
     </a>`;
   }).join('');
-  return `<div class="page-head"><div><h1>AI コントロールパネル</h1><span class="muted">${esc(dateLabel)}</span></div>
+  return `<div class="page-head"><div><h1 data-en="Control Panel // Dashboard">AI コントロールパネル</h1><span class="muted">${esc(dateLabel)}</span></div>
       <button class="btn primary" type="button" data-action="new-task">＋ タスク追加</button></div>
     <div class="summary">
-      <a class="stat" href="#${viewHref('/tasks', 'today')}"><b>${o.today}</b><span>今日</span></a>
-      <a class="stat ${o.overdue ? 'alert' : ''}" href="#${viewHref('/tasks', 'overdue')}"><b>${o.overdue}</b><span>期限切れ</span></a>
-      <a class="stat" href="#${viewHref('/tasks', 'high')}"><b>${o.high}</b><span>優先度高</span></a>
-      <a class="stat" href="#${viewHref('/tasks', 'open')}"><b>${o.open}</b><span>未完了</span></a>
+      <a class="stat" href="#${viewHref('/tasks', 'today')}"><b>${o.today}</b><span data-en="Today">今日</span></a>
+      <a class="stat ${o.overdue ? 'alert' : ''}" href="#${viewHref('/tasks', 'overdue')}"><b>${o.overdue}</b><span data-en="Overdue">期限切れ</span></a>
+      <a class="stat" href="#${viewHref('/tasks', 'high')}"><b>${o.high}</b><span data-en="High Prio">優先度高</span></a>
+      <a class="stat" href="#${viewHref('/tasks', 'open')}"><b>${o.open}</b><span data-en="Open">未完了</span></a>
     </div>
     <div class="cards">${cards}${ledger.homeCard()}</div>
     ${state.tasks.length ? '' : '<p class="empty" style="margin-top:16px">まだタスクがありません。「＋ タスク追加」か、設定でサンプルを追加できます。</p>'}`;
@@ -177,14 +182,14 @@ function projectView(id, q) {
   const reqs = state.requests.filter((r) => r.projectId === id).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   const reqHtml = reqs.length ? reqs.map(requestCard).join('') : '<div class="empty">開発依頼はまだありません</div>';
   return `<a class="back" href="#/">← ホーム</a>
-    <div class="page-head" style="${projectStyle(id)}"><div class="card-head"><div class="card-icon" aria-hidden="true">${p.icon}</div><div><h1 style="margin:0">${esc(p.name)}</h1>
+    <div class="page-head" style="${projectStyle(id)}"><div class="card-head"><div class="card-icon" aria-hidden="true">${p.code}</div><div><h1 style="margin:0" data-en="Project Module">${esc(p.name)}</h1>
       <span class="muted">未完了 ${s.open} ・ 完了 ${s.done} ・ 進捗 ${s.percent}%</span></div></div>
       <button class="btn primary" type="button" data-action="new-task" data-project="${id}">＋ タスク追加</button></div>
     <div class="progress" style="${projectStyle(id)}"><i style="width:${s.percent}%"></i></div>
-    <div class="card-next" style="border:0"><small class="muted">次にやること</small> ${s.next ? `<b>${esc(s.next.title)}</b>` : '<span class="muted">なし</span>'}</div>
+    <div class="card-next" style="border:0"><small class="muted" data-en="Next Action">次にやること</small> ${s.next ? `<b>${esc(s.next.title)}</b>` : '<span class="muted">なし</span>'}</div>
     ${chips(`/project/${id}`, view)}
     ${taskList(tasks, false, 'この条件のタスクはありません')}
-    <h2>開発依頼</h2>
+    <h2 data-en="Dev Requests">開発依頼</h2>
     <p class="notice">開発依頼は<b>記録のみ</b>です。コードの実行は行いません（将来のClaude Code連携用に、承認状態と一緒に保存します）。</p>
     <div class="btn-row" style="margin:10px 0"><button class="btn" type="button" data-action="new-request" data-project="${id}">＋ 開発依頼を記録</button></div>
     <div class="tasks">${reqHtml}</div>`;
@@ -208,7 +213,7 @@ function tasksView(q) {
   const pid = M.getProject(q.get('project')) ? q.get('project') : '';
   const tasks = M.filterTasks(state.tasks, { projectId: pid || null, view }, today());
   const options = [`<option value="">すべてのプロジェクト</option>`, ...M.PROJECTS.map((p) => `<option value="${p.id}" ${p.id === pid ? 'selected' : ''}>${esc(p.name)}</option>`)].join('');
-  return `<div class="page-head"><h1>すべてのタスク</h1><button class="btn primary" type="button" data-action="new-task" data-project="${pid}">＋ タスク追加</button></div>
+  return `<div class="page-head"><h1 data-en="Task Matrix">すべてのタスク</h1><button class="btn primary" type="button" data-action="new-task" data-project="${pid}">＋ タスク追加</button></div>
     <div class="filter-row"><label class="sr-only" for="proj-filter">プロジェクトで絞り込み</label>
       <select id="proj-filter" data-action="filter-project" data-view="${esc(view)}">${options}</select>
       <span class="muted">${tasks.length}件</span></div>
@@ -223,31 +228,35 @@ function settingsView() {
   const voiceMsg = !SR ? '❌ このブラウザは音声認識に対応していません。テキスト入力で同じ指示を実行できます。'
     : !secure ? '⚠️ 音声認識APIはありますが、HTTPS（または localhost）でないため使えない可能性があります。'
     : '✅ 音声認識を利用できます（初回はマイクの許可が必要です）。';
-  return `<h1>設定</h1>
-    <section class="panel"><h3>音声認識</h3><p class="status-line">${esc(voiceMsg)}</p>
+  return `<h1 data-en="System Config">設定</h1>
+    <section class="panel"><h3 data-en="Voice Input">音声認識</h3><p class="status-line">${esc(voiceMsg)}</p>
       <p class="muted">音声認識はブラウザ／OSの機能です。Safariでは音声がApple側のサービスで処理される場合があります。このアプリは音声を保存せず、認識結果の文字だけを使います。</p></section>
-    <section class="panel"><h3>データの保存</h3>
+    <section class="panel"><h3 data-en="Storage">データの保存</h3>
       <p>${state.repo.persistent ? '✅ このブラウザ内（IndexedDB）に保存しています。' : '⚠️ この環境ではブラウザ内保存が使えず、再読み込みでデータが消えます。バックアップを書き出してください。'}</p>
       <p class="muted">Safariは、長期間開かないサイトのデータを自動削除することがあります。「ホーム画面に追加」して使い、定期的にJSONを書き出してください。タスク ${state.tasks.length}件・開発依頼 ${state.requests.length}件・レシート ${state.receipts.length}件。</p></section>
-    <section class="panel"><h3>バックアップ（JSON）</h3>
+    <section class="panel"><h3 data-en="Backup">バックアップ（JSON）</h3>
       <div class="btn-row"><button class="btn" type="button" data-action="export">書き出す</button>
         <button class="btn" type="button" data-action="copy-json">JSONをコピー</button>
         <button class="btn" type="button" data-action="import">読み込む…</button></div>
       <input id="import-file" type="file" accept="application/json,.json" hidden></section>
-    <section class="panel"><h3>家計簿の分類ルール</h3>
+    <section class="panel"><h3 data-en="Learned Rules">家計簿の分類ルール</h3>
       <p class="muted">レシートで分類を直すと、同じ品名は次回から自動でその分類になります（学習済み ${state.rules.length}件）。レシート画像は保存しません。</p>
       <div class="btn-row"><button class="btn" type="button" data-action="ledger-reset-rules" ${state.rules.length ? '' : 'disabled'}>学習内容をリセット</button></div></section>
-    <section class="panel"><h3>サンプルデータ</h3>
+    <section class="panel"><h3 data-en="Sample Data">サンプルデータ</h3>
       <div class="btn-row"><button class="btn" type="button" data-action="add-samples">サンプルタスクを追加</button>
         <button class="btn" type="button" data-action="remove-samples" ${sampleCount ? '' : 'disabled'}>サンプルを削除（${sampleCount}件）</button></div></section>
-    <section class="panel"><h3>データの全消去</h3><p class="muted">タスクと開発依頼をすべて削除します。元に戻せません。先にバックアップを書き出してください。</p>
+    <section class="panel"><h3 data-en="Wipe Data">データの全消去</h3><p class="muted">タスクと開発依頼をすべて削除します。元に戻せません。先にバックアップを書き出してください。</p>
       <div class="btn-row"><button class="btn danger" type="button" data-action="clear-all">すべて削除…</button></div></section>
-    <section class="panel"><h3>このアプリについて</h3>
+    <section class="panel"><h3 data-en="About">このアプリについて</h3>
       <p class="muted">APIキーや認証情報は保存・表示しません。外部サービスへの通信は行いません。コード実行機能はありません（開発依頼は記録のみ）。</p></section>`;
 }
 
+let lastRouteKey = null;
 function render() {
   const r = currentRoute();
+  const routeKey = `${r.name}/${r.id || ''}`;
+  if (lastRouteKey !== null && routeKey !== lastRouteKey) window.scrollTo(0, 0); // 画面が変わったらHUDの下に隠れないよう先頭へ
+  lastRouteKey = routeKey;
   const app = $('#app');
   let html;
   if (r.name === 'project') html = projectView(r.id, r.q);
@@ -273,7 +282,7 @@ function openTaskForm({ task = null, projectId = null, title = '' } = {}) {
   dlg.innerHTML = `<div class="sheet-head"><h2 id="task-dialog-title">${task ? 'タスクを編集' : 'タスクを追加'}</h2><button type="button" class="btn ghost" data-close>閉じる</button></div>
     <form class="form" id="task-form" novalidate>
       <div class="field"><label for="tf-title">タイトル</label><input id="tf-title" type="text" maxlength="200" autocomplete="off" value="${esc(v.title)}">${fieldErr({}, 'title')}</div>
-      <div class="field"><label for="tf-project">プロジェクト</label><select id="tf-project">${M.PROJECTS.map((p) => `<option value="${p.id}" ${p.id === v.projectId ? 'selected' : ''}>${p.icon} ${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="field"><label for="tf-project">プロジェクト</label><select id="tf-project">${M.PROJECTS.map((p) => `<option value="${p.id}" ${p.id === v.projectId ? 'selected' : ''}>${p.code} · ${esc(p.name)}</option>`).join('')}</select></div>
       <div class="field"><span class="label">優先度</span><div class="seg" role="radiogroup" aria-label="優先度">
         ${['high', 'mid', 'low'].map((p) => `<label><input type="radio" name="tf-priority" value="${p}" ${v.priority === p ? 'checked' : ''}><span>${M.PRIORITY_LABEL[p]}</span></label>`).join('')}</div></div>
       <div class="field"><label for="tf-due">期限</label><input id="tf-due" type="date" value="${esc(v.due || '')}">
@@ -321,7 +330,7 @@ function openRequestForm({ projectId = null, body = '' } = {}) {
   dlg.innerHTML = `<div class="sheet-head"><h2 id="request-dialog-title">開発依頼を記録</h2><button type="button" class="btn ghost" data-close>閉じる</button></div>
     <p class="notice">記録のみで、コードは実行されません。承認状態は「承認待ち」で保存されます。</p>
     <form class="form" id="request-form" novalidate>
-      <div class="field"><label for="rf-project">プロジェクト</label><select id="rf-project">${M.PROJECTS.map((p) => `<option value="${p.id}" ${p.id === pid ? 'selected' : ''}>${p.icon} ${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="field"><label for="rf-project">プロジェクト</label><select id="rf-project">${M.PROJECTS.map((p) => `<option value="${p.id}" ${p.id === pid ? 'selected' : ''}>${p.code} · ${esc(p.name)}</option>`).join('')}</select></div>
       <div class="field"><label for="rf-body">依頼内容</label><textarea id="rf-body" maxlength="2000">${esc(body)}</textarea>${fieldErr({}, 'body')}</div>
       <div class="form-actions"><button type="submit" class="btn primary">記録する</button></div></form>`;
   dlg.onclick = (e) => { if (e.target.closest('[data-close]')) dlg.close(); };
@@ -504,7 +513,7 @@ async function onAction(el) {
       const existing = new Set(state.tasks.map((t) => t.id));
       const samples = M.sampleTasks(today()).filter((t) => !existing.has(t.id));
       if (!samples.length) { toast('サンプルは追加済みです'); break; }
-      await guard(async () => { state.tasks.push(...samples); render(); toast(`サンプル${samples.length}件を追加しました`); await state.repo.putTasks(samples); });
+      await guard(async () => { const written = state.repo.putTasks(samples); state.tasks.push(...samples); render(); toast(`サンプル${samples.length}件を追加しました`); await written; });
       break;
     }
     case 'remove-samples': {
@@ -555,6 +564,7 @@ async function init() {
   $('#voice-form').addEventListener('submit', (e) => { e.preventDefault(); interpret($('#voice-input').value); });
 
   window.addEventListener('hashchange', render);
+  startFx();
   render();
   document.body.dataset.ready = 'true';
 

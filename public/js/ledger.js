@@ -38,7 +38,7 @@ export function createLedger(env) {
         <span class="rcp-amt">${yen(R.amountInCategory(r, cat))}</span></button></li>`;
     }).join('');
     const isThis = month === thisMonth();
-    return `<div class="page-head"><h1>家計簿</h1>
+    return `<div class="page-head"><h1 data-en="Finance Log">家計簿</h1>
         <div class="btn-row"><button class="btn primary" type="button" data-action="ledger-scan">📷 レシートを読み取る</button>
           <button class="btn" type="button" data-action="ledger-new">＋ 手入力</button></div></div>
       <nav class="month-nav" aria-label="月の切り替え">
@@ -48,8 +48,8 @@ export function createLedger(env) {
         ${isThis ? '' : `<a class="btn small ghost" href="${href(thisMonth())}">今月へ</a>`}</nav>
       <section class="spend" aria-label="支出の合計"><span class="muted">${isThis ? '今月' : esc(R.monthLabel(month))}の支出</span>
         <b data-testid="month-total">${yen(sum.total)}</b><span class="muted">レシート${sum.count}件</span></section>
-      ${sum.categories.length ? `<h2>分類別</h2><div class="cats">${cats}</div>` : ''}
-      <h2>${cat ? `${esc(cat)}のレシート` : 'レシート'}${cat ? ` <a class="btn small ghost" href="${href(month)}">絞り込みを解除</a>` : ''}</h2>
+      ${sum.categories.length ? `<h2 data-en="Category Split">分類別</h2><div class="cats">${cats}</div>` : ''}
+      <h2 data-en="Receipt Log">${cat ? `${esc(cat)}のレシート` : 'レシート'}${cat ? ` <a class="btn small ghost" href="${href(month)}">絞り込みを解除</a>` : ''}</h2>
       ${list.length ? `<ul class="tasks">${rows}</ul>` : `<div class="empty">${sum.count ? 'この分類のレシートはありません' : 'この月のレシートはまだありません。「レシートを読み取る」か「手入力」で追加できます。'}</div>`}
       ${sum.count ? `<div class="btn-row" style="margin-top:14px"><button class="btn" type="button" data-action="ledger-csv" data-month="${month}">${esc(R.monthLabel(month))}をCSVで書き出す</button></div>` : ''}`;
   }
@@ -197,13 +197,15 @@ export function createLedger(env) {
   async function saveReceipt(r) {
     const i = state.receipts.findIndex((x) => x.id === r.id);
     if (i >= 0) state.receipts[i] = r; else state.receipts.push(r);
+    const written = state.repo.putReceipt(r);
     render();
-    await state.repo.putReceipt(r);
+    await written;
   }
   async function removeReceipt(r, silent = false) {
     state.receipts = state.receipts.filter((x) => x.id !== r.id);
+    const written = state.repo.deleteReceipt(r.id);
     render();
-    await state.repo.deleteReceipt(r.id);
+    await written;
     if (!silent) toast('レシートを削除しました', () => guard(() => saveReceipt(r)));
   }
   /** ユーザーが直した分類を覚える（次回から同じ品名に使う） */
@@ -242,7 +244,7 @@ export function createLedger(env) {
     const s = R.monthSummary(state.receipts, month);
     const top = s.categories[0];
     return `<a class="card ledger-card" href="#/ledger" style="--pc:#c2a04a" data-testid="ledger-card">
-      <div class="card-head"><div class="card-icon" aria-hidden="true">🧾</div><div><h3>家計簿</h3><span class="muted">${esc(R.monthLabel(month))}の支出</span></div></div>
+      <div class="card-head"><div class="card-icon" aria-hidden="true">FIN</div><div><h3>家計簿</h3><span class="muted">${esc(R.monthLabel(month))}の支出</span></div></div>
       <div class="spend-line"><b>${yen(s.total)}</b><span class="muted">レシート${s.count}件${top ? `・最多は${esc(top.category)}` : ''}</span></div></a>`;
   };
 
