@@ -76,3 +76,27 @@ export function parseBackup(text, now = new Date()) {
   }
   return { ok: true, tasks, requests, receipts, rules, warnings };
 }
+
+// ---- 読み込みコード（Claudeなど外部で作った内容を、貼り付けだけで取り込む）----
+export const IMPORT_PREFIX = 'ACPRCP1:';
+
+export function encodeImportCode(backup) {
+  const bytes = new TextEncoder().encode(JSON.stringify(backup));
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return IMPORT_PREFIX + btoa(bin);
+}
+
+/** 貼り付けられたテキスト（コード or JSON）をJSON文字列にする。壊れていれば ok:false */
+export function decodeImportText(text) {
+  const t = String(text ?? '').replace(/[\s\u200b]+/g, ' ').trim();
+  if (!t) return { ok: false, error: 'テキストを貼り付けてください' };
+  if (t.startsWith(IMPORT_PREFIX)) {
+    try {
+      const bin = atob(t.slice(IMPORT_PREFIX.length).replace(/\s+/g, ''));
+      return { ok: true, json: new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(bin, (c) => c.charCodeAt(0))) };
+    } catch { return { ok: false, error: 'コードが壊れています。途中で切れていないか、全体をコピーしたか確認してください' }; }
+  }
+  if (t.startsWith('{')) return { ok: true, json: t };
+  return { ok: false, error: '読み込みコード（ACPRCP1:で始まる文字列）か、バックアップのJSONを貼り付けてください' };
+}

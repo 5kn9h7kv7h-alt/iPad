@@ -6,6 +6,8 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { startServer } from '../../server.mjs';
+import { buildBackup, encodeImportCode } from '../../public/js/core/backup.js';
+import { createReceipt, contentId } from '../../public/js/core/receipt.js';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
@@ -528,6 +530,39 @@ await scenario('スマホ幅(390px): 家計簿とフォームが収まり、タ�
   const smallIn = await dlg.evaluate((d) => [...d.querySelectorAll('button, select, input')].filter((e) => e.offsetParent && !e.classList.contains('sr-only')).map((e) => ({ n: e.className, h: e.getBoundingClientRect().height })).filter((x) => x.h < 44));
   assert.deepEqual(smallIn, [], `フォーム内44px未満: ${JSON.stringify(smallIn)}`);
 }, { viewport: { width: 390, height: 844 } });
+
+
+await scenario('コードで読み込む: Claudeが作ったレシートを貼り付けて追加（重複しない・不正なコードは拒否）', async (page) => {
+  const input = { date: '2026-10-24', store: 'コンビニ', items: [{ name: 'おにぎり', amount: 160, category: '食費' }, { name: '電池', amount: 440, category: '雑費' }] };
+  const receipt = createReceipt({ ...input, source: 'claude' }, new Date(), contentId(input)).receipt;
+  const code = encodeImportCode(buildBackup({ receipts: [receipt] }));
+  const importCode = async (text) => {
+    await page.goto(url + '#/settings');
+    await page.getByRole('button', { name: 'コードで読み込む…' }).click();
+    await page.locator('#import-text').fill(text);
+    await page.getByRole('button', { name: '内容を確認' }).click();
+  };
+  await importCode('これはコードではありません');
+  assert.match(await page.locator('#import-err').innerText(), /読み込みコード/);
+  await page.locator('#import-dialog [data-close]').click();
+
+  await importCode(code.slice(0, 40) + '\n' + code.slice(40)); // 途中で改行が入っても読める
+  await page.locator('#choice-dialog').waitFor({ state: 'visible' });
+  assert.match(await page.locator('#choice-dialog').innerText(), /レシート1件[\s\S]*コンビニ[\s\S]*¥600/);
+  await page.locator('#choice-dialog').getByRole('button', { name: '追加する' }).click();
+  await page.waitForFunction(() => location.hash.startsWith('#/ledger?month=2026-10'));
+  assert.equal(await page.locator('[data-testid=month-total]').innerText(), '¥600');
+  const cats = await page.locator('.catrow').allInnerTexts();
+  assert.ok(cats.some((t) => t.includes('雑費') && t.includes('¥440')), cats.join('|'));
+  assert.ok(cats.some((t) => t.includes('食費') && t.includes('¥160')), cats.join('|'));
+
+  // 同じコードをもう一度読み込んでも重複しない
+  await importCode(code);
+  await page.locator('#choice-dialog').getByRole('button', { name: '追加する' }).click();
+  await page.waitForFunction(() => location.hash.startsWith('#/ledger?month=2026-10'));
+  assert.equal(await page.locator('[data-testid=month-total]').innerText(), '¥600');
+  assert.equal(await page.locator('.rcp').count(), 1);
+});
 
 await browser.close();
 server.close();

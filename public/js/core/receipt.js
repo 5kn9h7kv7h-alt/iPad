@@ -1,10 +1,10 @@
 // レシート解析・分類・家計簿の集計（純粋ロジック。DOM・保存に依存しない）。単体テスト対象。
 import { addDays, isValidDate, newId, todayStr } from './model.js';
 
-export const CATEGORIES = ['食費', '外食', '日用品', '交通費', '医療・健康', '衣服・美容', '趣味・娯楽', '教育・書籍', '水道光熱・通信', 'その他'];
+export const CATEGORIES = ['食費', '外食', '日用品', '交通費', '医療・健康', '衣服・美容', '趣味・娯楽', '教育・書籍', '水道光熱・通信', '雑費', 'その他'];
 export const CATEGORY_COLORS = {
   '食費': '#3dffb0', '外食': '#ffb454', '日用品': '#2de2ff', '交通費': '#7aa7ff', '医療・健康': '#ff6b88',
-  '衣服・美容': '#e08bff', '趣味・娯楽': '#ffe14d', '教育・書籍': '#5ff0d4', '水道光熱・通信': '#b4e04d', 'その他': '#93a7bd',
+  '衣服・美容': '#e08bff', '趣味・娯楽': '#ffe14d', '教育・書籍': '#5ff0d4', '水道光熱・通信': '#b4e04d', '雑費': '#ff9f6b', 'その他': '#93a7bd',
 };
 
 // ---- 正規化 ----
@@ -186,7 +186,7 @@ function validateReceiptFields(f) {
     if (f.items.length > 200) errors.items = '品目が多すぎます（200件まで）';
   }
   const rawText = typeof f.rawText === 'string' ? f.rawText.slice(0, RAW_MAX) : '';
-  return { errors, value: { date: f.date, store, items, total: items.reduce((a, i) => a + i.amount, 0), rawText, source: f.source === 'ocr' ? 'ocr' : 'manual' } };
+  return { errors, value: { date: f.date, store, items, total: items.reduce((a, i) => a + i.amount, 0), rawText, source: ['ocr', 'claude'].includes(f.source) ? f.source : 'manual' } };
 }
 
 export function createReceipt(input, now = new Date(), id = newId('rcp-')) {
@@ -252,4 +252,12 @@ export function toCsv(receipts) {
   const rows = [['日付', '店名', '品名', '金額', '分類']];
   for (const r of [...receipts].sort((a, b) => (a.date < b.date ? -1 : 1))) for (const it of r.items) rows.push([r.date, r.store, it.name, it.amount, it.category]);
   return rows.map((r) => r.map(csvCell).join(',')).join('\r\n');
+}
+
+/** レシートの内容から決まるID（同じ内容を2回取り込んでも重複しない）。FNV-1a */
+export function contentId(r) {
+  const text = JSON.stringify([r.date, String(r.store || '').trim(), (r.items || []).map((i) => [String(i.name).trim(), i.amount, i.category])]);
+  let h = 0x811c9dc5;
+  for (const ch of text) { h ^= ch.codePointAt(0); h = Math.imul(h, 0x01000193) >>> 0; }
+  return `rcp-${h.toString(16).padStart(8, '0')}`;
 }

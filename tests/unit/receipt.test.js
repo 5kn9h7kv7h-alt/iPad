@@ -164,3 +164,20 @@ test('バックアップ用サニタイズ', () => {
   assert.equal(R.sanitizeRule({ id: 'k', category: '存在しない' }, 'x'), null);
   assert.equal(R.sanitizeRule({ id: 'k', category: '食費' }, 'x').category, '食費');
 });
+
+test('contentId: 同じ内容は同じID、違う内容は違うID', () => {
+  const a = { date: '2026-10-24', store: ' まるい ', items: [{ name: '牛乳', amount: 198, category: '食費' }] };
+  assert.equal(R.contentId(a), R.contentId({ ...a, store: 'まるい' }));
+  assert.notEqual(R.contentId(a), R.contentId({ ...a, date: '2026-10-25' }));
+  assert.notEqual(R.contentId(a), R.contentId({ ...a, items: [{ name: '牛乳', amount: 199, category: '食費' }] }));
+  assert.match(R.contentId(a), /^rcp-[0-9a-f]{8}$/);
+});
+
+test('「雑費」分類が使え、source: claude も保存できる', () => {
+  assert.ok(R.CATEGORIES.includes('雑費'));
+  assert.ok(R.CATEGORY_COLORS['雑費']);
+  const r = R.createReceipt({ date: '2026-10-24', items: [{ name: '電池', amount: 300, category: '雑費' }], source: 'claude' }, NOW, 'x');
+  assert.ok(r.ok);
+  assert.equal(r.receipt.source, 'claude');
+  assert.equal(R.createReceipt({ date: '2026-10-24', items: [{ name: 'a', amount: 1, category: '食費' }], source: 'bogus' }, NOW, 'y').receipt.source, 'manual');
+});

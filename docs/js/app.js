@@ -1,7 +1,7 @@
 import * as M from './core/model.js';
 import { parseCommand } from './core/voice.js';
 import { openRepository } from './storage/repository.js';
-import { buildBackup, parseBackup } from './core/backup.js';
+import { buildBackup, parseBackup, decodeImportText } from './core/backup.js';
 import * as R from './core/receipt.js';
 import { createLedger } from './ledger.js';
 import { saveFile } from './core/save.js';
@@ -237,7 +237,8 @@ function settingsView() {
     <section class="panel"><h3 data-en="Backup">バックアップ（JSON）</h3>
       <div class="btn-row"><button class="btn" type="button" data-action="export">書き出す</button>
         <button class="btn" type="button" data-action="copy-json">JSONをコピー</button>
-        <button class="btn" type="button" data-action="import">読み込む…</button></div>
+        <button class="btn" type="button" data-action="import">読み込む…</button>
+        <button class="btn" type="button" data-action="import-text">コードで読み込む…</button></div>
       <input id="import-file" type="file" accept="application/json,.json" hidden></section>
     <section class="panel"><h3 data-en="Learned Rules">家計簿の分類ルール</h3>
       <p class="muted">レシートで分類を直すと、同じ品名は次回から自動でその分類になります（学習済み ${state.rules.length}件）。レシート画像は保存しません。</p>
@@ -481,6 +482,48 @@ async function importFile(file) {
   });
 }
 
+const yenText = (n) => `¥${n.toLocaleString('ja-JP')}`;
+
+/** Claudeなどから受け取った読み込みコード（またはJSON）を貼り付けて、今のデータに追加する */
+function openImportText() {
+  const dlg = $('#import-dialog');
+  dlg.innerHTML = `<div class="sheet-head"><h2 id="import-title" data-en="Import Code">コードで読み込む</h2><button type="button" class="btn ghost" data-close>閉じる</button></div>
+    <p class="notice">Claudeから受け取った読み込みコード（<code>ACPRCP1:</code>で始まる文字列）か、バックアップのJSONを貼り付けます。<b>今のデータは消えず、追加されます</b>（同じレシートを2回読み込んでも重複しません）。</p>
+    <form class="form" id="import-form" novalidate>
+      <div class="field"><label for="import-text">コード</label><textarea id="import-text" autocomplete="off" spellcheck="false" placeholder="ACPRCP1:…"></textarea></div>
+      <div id="import-err" class="err" role="alert"></div>
+      <div class="form-actions"><button type="submit" class="btn primary">内容を確認</button></div></form>`;
+  dlg.onclick = (e) => { if (e.target.closest('[data-close]')) dlg.close(); };
+  $('#import-form', dlg).onsubmit = async (e) => {
+    e.preventDefault();
+    const err = (m) => { $('#import-err', dlg).textContent = m || ''; };
+    const dec = decodeImportText($('#import-text', dlg).value);
+    if (!dec.ok) return err(dec.error);
+    const parsed = parseBackup(dec.json);
+    if (!parsed.ok) return err(parsed.error);
+    const total = parsed.tasks.length + parsed.requests.length + parsed.receipts.length;
+    if (!total) return err('読み込める内容がありません');
+    err('');
+    const lines = parsed.receipts.slice(0, 8).map((r) => `${r.date} ${r.store || '（店名なし）'} ${yenText(r.total)}`).join(' / ');
+    const ok = await choose({
+      title: '次の内容を追加します',
+      message: `レシート${parsed.receipts.length}件・タスク${parsed.tasks.length}件・開発依頼${parsed.requests.length}件${parsed.warnings.length ? `（不正な${parsed.warnings.length}件をスキップ）` : ''}。${lines ? `　${lines}` : ''}`,
+      buttons: [{ value: true, label: '追加する', kind: 'primary' }],
+    });
+    if (ok !== true) return;
+    await guard(async () => {
+      await state.repo.putMany({ tasks: parsed.tasks, requests: parsed.requests, receipts: parsed.receipts, rules: parsed.rules });
+      Object.assign(state, await state.repo.loadAll());
+      dlg.close();
+      const first = parsed.receipts[0];
+      go(first ? ledger.href(R.monthOf(first.date)) : '#/');
+      toast(`追加しました（レシート${parsed.receipts.length}件）`);
+    });
+  };
+  dlg.showModal();
+  $('#import-text', dlg).focus();
+}
+
 async function onAction(el) {
   const { action, id } = el.dataset;
   switch (action) {
@@ -509,6 +552,7 @@ async function onAction(el) {
       try { await navigator.clipboard.writeText(backupText()); toast('JSONをコピーしました'); } catch { toast('コピーできませんでした。「書き出す」を使ってください'); }
       break;
     case 'import': $('#import-file').click(); break;
+    case 'import-text': openImportText(); break;
     case 'add-samples': {
       const existing = new Set(state.tasks.map((t) => t.id));
       const samples = M.sampleTasks(today()).filter((t) => !existing.has(t.id));
