@@ -10,6 +10,7 @@
     "test": "node --test \"tests/unit/*.test.js\"",
     "test:e2e": "node tests/e2e/run.mjs",
     "build:pages": "node build.mjs --out docs",
+    "build:artifact": "node tools/build-artifact.mjs",
     "bundle": "node tools/bundle.mjs",
     "test:all": "npm run build && npm test && npm run test:e2e"
   },

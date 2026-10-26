@@ -13,15 +13,23 @@
   --shadow: 0 1px 2px rgba(40, 48, 43, .08), 0 4px 14px rgba(40, 48, 43, .06);
   --radius: 18px;
   --tap: 52px;
-  color-scheme: light dark;
+  color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #1a201d; --surface: #232b27; --surface-2: #2c3631; --ink: #e8eee9; --muted: #9aa8a0;
     --line: #36423c; --accent: #6fa488; --accent-ink: #10201a; --danger: #e38b78; --warn: #d9a352; --ok: #7cc79a;
     --shadow: none;
+    color-scheme: dark;
   }
 }
+:root[data-theme="dark"] {
+  --bg: #1a201d; --surface: #232b27; --surface-2: #2c3631; --ink: #e8eee9; --muted: #9aa8a0;
+  --line: #36423c; --accent: #6fa488; --accent-ink: #10201a; --danger: #e38b78; --warn: #d9a352; --ok: #7cc79a;
+  --shadow: none;
+  color-scheme: dark;
+}
+:root[data-theme="light"] { color-scheme: light; }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 [hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
@@ -30,7 +38,7 @@ body {
   font: 17px/1.55 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
   padding-top: env(safe-area-inset-top);
 }
-.app { max-width: 1040px; margin: 0 auto; padding: 20px 20px calc(170px + env(safe-area-inset-bottom)); }
+.app { max-width: 1040px; margin: 0 auto; padding: 20px max(20px, env(safe-area-inset-right, 0px)) calc(170px + env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left, 0px)); }
 h1 { font-size: 1.7rem; margin: .2em 0 .1em; letter-spacing: .01em; }
 h2 { font-size: 1.2rem; margin: 1.4em 0 .5em; }
 h3 { font-size: 1.05rem; margin: 0; }

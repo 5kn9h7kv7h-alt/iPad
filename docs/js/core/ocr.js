@@ -75,7 +75,7 @@ export async function recognizeImage(file, onProgress = () => {}) {
   const T = await loadTesseract();
   const base = VENDOR();
   const worker = await T.createWorker('jpn', 1, {
-    workerPath: `${base}worker.min.js`, corePath: `${base}core`, langPath: `${base}lang`, gzip: false,
+    workerPath: `${base}worker.min.js`, corePath: `${base}core`, langPath: `${base}lang`, gzip: false, workerBlobURL: false,
     logger: (m) => onProgress(STATUS_JA[m.status] || '処理中…', m.progress || 0),
   });
   try {

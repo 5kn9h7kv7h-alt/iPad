@@ -1,6 +1,6 @@
 // オフライン対応用Service Worker。ビルド時に VERSION と ASSETS が埋め込まれる。
-const VERSION = '9f9d05e337';
-const ASSETS = ["./", "icons/apple-touch-icon.png", "icons/icon-192.png", "icons/icon-512.png", "index.html", "js/app.js", "js/core/backup.js", "js/core/model.js", "js/core/ocr.js", "js/core/receipt.js", "js/core/voice.js", "js/ledger.js", "js/storage/repository.js", "manifest.webmanifest", "styles.css"];
+const VERSION = 'a37e682252';
+const ASSETS = ["./", "icons/apple-touch-icon.png", "icons/icon-192.png", "icons/icon-512.png", "index.html", "js/app.js", "js/core/backup.js", "js/core/model.js", "js/core/ocr.js", "js/core/receipt.js", "js/core/save.js", "js/core/voice.js", "js/ledger.js", "js/storage/repository.js", "manifest.webmanifest", "styles.css"];
 const CACHE = `acp-${VERSION}`;
 
 self.addEventListener('install', (event) => {

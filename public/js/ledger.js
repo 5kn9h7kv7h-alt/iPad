@@ -2,6 +2,7 @@
 import * as R from './core/receipt.js';
 import { addDays, todayStr } from './core/model.js';
 import { recognizeImage } from './core/ocr.js';
+import { saveFile } from './core/save.js';
 
 const yen = (n) => `${n < 0 ? '-' : ''}¥${Math.abs(n).toLocaleString('ja-JP')}`;
 const WEEK = ['日', '月', '火', '水', '木', '金', '土'];
@@ -216,13 +217,6 @@ export function createLedger(env) {
     await state.repo.putRules(changed);
   }
 
-  function download(filename, text, type) {
-    const url = URL.createObjectURL(new Blob(['﻿', text], { type }));
-    const a = Object.assign(document.createElement('a'), { href: url, download: filename });
-    document.body.append(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-
   async function onAction(el) {
     const { action, id } = el.dataset;
     switch (action) {
@@ -231,8 +225,8 @@ export function createLedger(env) {
       case 'ledger-open': { const r = state.receipts.find((x) => x.id === id); if (r) openForm({ receipt: r }); break; }
       case 'ledger-csv': {
         const month = el.dataset.month;
-        download(`kakeibo-${month}.csv`, R.toCsv(R.receiptsInMonth(state.receipts, month)), 'text/csv;charset=utf-8');
-        toast('CSVを書き出しました'); break;
+        const r = await saveFile(`kakeibo-${month}.csv`, R.toCsv(R.receiptsInMonth(state.receipts, month)), 'text/csv;charset=utf-8');
+        if (r === 'saved') toast('CSVを書き出しました'); else if (r === 'failed') toast('書き出せませんでした'); break;
       }
       case 'ledger-reset-rules':
         if (await confirmDialog('学習した分類ルールをリセットしますか？', `${state.rules.length}件のルールを削除します。レシートの内容は変わりません。`, 'リセット')) {

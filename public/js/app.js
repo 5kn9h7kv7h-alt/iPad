@@ -4,6 +4,7 @@ import { openRepository } from './storage/repository.js';
 import { buildBackup, parseBackup } from './core/backup.js';
 import * as R from './core/receipt.js';
 import { createLedger } from './ledger.js';
+import { saveFile } from './core/save.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -452,12 +453,6 @@ function startListening() {
 }
 
 // ---------- 設定画面の操作 ----------
-function download(filename, text) {
-  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
-  const a = Object.assign(document.createElement('a'), { href: url, download: filename });
-  document.body.append(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 const backupText = () => JSON.stringify(buildBackup({ tasks: state.tasks, requests: state.requests, receipts: state.receipts, rules: state.rules }), null, 2);
 
 async function importFile(file) {
@@ -500,7 +495,7 @@ async function onAction(el) {
       if (el.value) q.set('project', el.value);
       go(`#/tasks?${q}`); break;
     }
-    case 'export': download(`ai-control-panel-${today()}.json`, backupText()); toast('書き出しました'); break;
+    case 'export': { const r = await saveFile(`ai-control-panel-${today()}.json`, backupText(), 'application/json'); if (r === 'saved') toast('書き出しました'); else if (r === 'failed') toast('書き出せませんでした。「JSONをコピー」をお使いください'); break; }
     case 'copy-json':
       try { await navigator.clipboard.writeText(backupText()); toast('JSONをコピーしました'); } catch { toast('コピーできませんでした。「書き出す」を使ってください'); }
       break;
