@@ -320,6 +320,7 @@ await scenario('レシート: 画像をOCR→確認→保存→家計簿に反�
   await page.locator('#scan-file').setInputFiles(FIXTURE);
   await page.locator('#receipt-dialog').waitFor({ state: 'visible', timeout: 120000 });
   const dlg = page.locator('#receipt-dialog');
+  assert.match(await dlg.locator('[data-testid=ocr-method]').innerText(), /くっきり|標準|縦一列|従来/);
   assert.equal(await dlg.locator('#rf-date').inputValue(), '2026-10-24');
   assert.match(await dlg.locator('#rf-store').inputValue(), /スーパーまるい/);
   const rows = await formRows(page);
@@ -562,6 +563,30 @@ await scenario('コードで読み込む: Claudeが作ったレシートを貼�
   await page.waitForFunction(() => location.hash.startsWith('#/ledger?month=2026-10'));
   assert.equal(await page.locator('[data-testid=month-total]').innerText(), '¥600');
   assert.equal(await page.locator('.rcp').count(), 1);
+});
+
+
+await scenario('読み取り設定: モードを選ぶと保存され、再読み込み後も残る。標準モードでも読み取れる', async (page) => {
+  await page.goto(url + '#/settings');
+  const panel = page.locator('[data-testid=ocr-settings]');
+  assert.ok(await panel.locator('input[name=ocr-mode][value=auto]').isChecked(), '既定は自動');
+  assert.ok(await panel.locator('#ocr-crop').isChecked(), '紙の切り出しは既定でオン');
+  await panel.locator('label.opt', { hasText: '標準' }).click();
+  await panel.locator('label.opt', { hasText: '紙の部分を自動で切り出す' }).click();
+  await page.waitForFunction(() => document.querySelector('#toast')?.innerText.includes('読み取り設定を保存しました（標準）'));
+  await page.reload();
+  await page.waitForSelector('body[data-ready="true"]');
+  assert.ok(await panel.locator('input[name=ocr-mode][value=plain]').isChecked());
+  assert.equal(await panel.locator('#ocr-crop').isChecked(), false);
+  // 読み取りシートに現在のモードが出る
+  await page.goto(url + '#/ledger');
+  await page.getByRole('button', { name: /レシートを読み取る/ }).click();
+  assert.match(await page.locator('[data-testid=scan-mode]').innerText(), /標準/);
+  // 標準・切り出しなしでも、きれいな画像は読める
+  await page.locator('#scan-file').setInputFiles(FIXTURE);
+  await page.locator('#receipt-dialog').waitFor({ state: 'visible', timeout: 120000 });
+  assert.match(await page.locator('[data-testid=ocr-method]').innerText(), /従来|標準/);
+  assert.equal(await page.locator('#receipt-dialog [data-testid=form-total]').innerText(), '¥1,790');
 });
 
 await browser.close();

@@ -6,6 +6,7 @@ import * as R from './core/receipt.js';
 import { createLedger } from './ledger.js';
 import { saveFile } from './core/save.js';
 import { startFx } from './fx.js';
+import { OCR_MODES, loadOcrSettings, saveOcrSettings } from './core/ocr.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -225,12 +226,19 @@ function settingsView() {
   const SR = SpeechRecognitionImpl();
   const secure = window.isSecureContext;
   const sampleCount = state.tasks.filter((t) => t.sample).length;
+  const ocr = loadOcrSettings();
   const voiceMsg = !SR ? '❌ このブラウザは音声認識に対応していません。テキスト入力で同じ指示を実行できます。'
     : !secure ? '⚠️ 音声認識APIはありますが、HTTPS（または localhost）でないため使えない可能性があります。'
     : '✅ 音声認識を利用できます（初回はマイクの許可が必要です）。';
   return `<h1 data-en="System Config">設定</h1>
     <section class="panel"><h3 data-en="Voice Input">音声認識</h3><p class="status-line">${esc(voiceMsg)}</p>
       <p class="muted">音声認識はブラウザ／OSの機能です。Safariでは音声がApple側のサービスで処理される場合があります。このアプリは音声を保存せず、認識結果の文字だけを使います。</p></section>
+    <section class="panel" data-testid="ocr-settings"><h3 data-en="Receipt OCR">レシート読み取りの設定</h3>
+      <div class="opts" role="radiogroup" aria-label="読み取りモード">
+        ${Object.entries(OCR_MODES).map(([k, v]) => `<label class="opt"><input type="radio" name="ocr-mode" value="${k}" ${ocr.mode === k ? 'checked' : ''}><span><b>${esc(v.label)}</b><small>${esc(v.note)}</small></span></label>`).join('')}
+      </div>
+      <label class="opt"><input type="checkbox" id="ocr-crop" ${ocr.crop ? 'checked' : ''}><span><b>紙の部分を自動で切り出す</b><small>机や背景が写っていても、レシートの白い部分だけを読みます。うまく読めない時はオフにしてください</small></span></label>
+      <p class="muted">写真の処理はこの端末の中だけで行い、画像は保存も送信もしません。読み取り結果は、保存前に必ず確認できます。</p></section>
     <section class="panel"><h3 data-en="Storage">データの保存</h3>
       <p>${state.repo.persistent ? '✅ このブラウザ内（IndexedDB）に保存しています。' : '⚠️ この環境ではブラウザ内保存が使えず、再読み込みでデータが消えます。バックアップを書き出してください。'}</p>
       <p class="muted">Safariは、長期間開かないサイトのデータを自動削除することがあります。「ホーム画面に追加」して使い、定期的にJSONを書き出してください。タスク ${state.tasks.length}件・開発依頼 ${state.requests.length}件・レシート ${state.receipts.length}件。</p></section>
@@ -588,6 +596,11 @@ async function init() {
   });
   document.addEventListener('change', (e) => {
     if (e.target.matches('select[data-action]')) onAction(e.target);
+    if (e.target.name === 'ocr-mode' || e.target.id === 'ocr-crop') {
+      const mode = document.querySelector('input[name="ocr-mode"]:checked')?.value || 'auto';
+      saveOcrSettings({ mode, crop: document.getElementById('ocr-crop')?.checked !== false });
+      toast(`読み取り設定を保存しました（${OCR_MODES[mode].label}）`);
+    }
     if (e.target.id === 'import-file' && e.target.files[0]) { importFile(e.target.files[0]); e.target.value = ''; }
   });
   document.querySelectorAll('dialog').forEach((d) => d.addEventListener('click', (e) => {

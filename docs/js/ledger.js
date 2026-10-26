@@ -1,7 +1,7 @@
 // 家計簿の画面（レシート読み取り・確認フォーム・月別集計）。app.js から createLedger(env) で組み込む。
 import * as R from './core/receipt.js';
 import { addDays, todayStr } from './core/model.js';
-import { recognizeImage } from './core/ocr.js';
+import { recognizeImage, loadOcrSettings, OCR_MODES } from './core/ocr.js';
 import { saveFile } from './core/save.js';
 
 const yen = (n) => `${n < 0 ? '-' : ''}¥${Math.abs(n).toLocaleString('ja-JP')}`;
@@ -59,6 +59,7 @@ export function createLedger(env) {
     const dlg = $('#scan-dialog');
     dlg.innerHTML = `<div class="sheet-head"><h2 id="scan-title">レシートを読み取る</h2><button type="button" class="btn ghost" data-close>閉じる</button></div>
       <p class="notice">写真の文字認識は<b>この端末の中だけ</b>で行います。画像は保存も送信もしません。読み取った内容は、保存前に必ず確認・修正できます。</p>
+      <p class="muted" data-testid="scan-mode">読み取りモード：<b>${esc(OCR_MODES[loadOcrSettings().mode].label)}</b>　<a href="#/settings" data-close-link>設定を変える</a></p>
       <div class="form">
         <label class="btn primary big" for="scan-file" id="scan-file-label">📷 写真を撮る／選ぶ</label>
         <input id="scan-file" class="sr-only" type="file" accept="image/*">
@@ -75,10 +76,10 @@ export function createLedger(env) {
         <div class="form-actions"><button type="button" class="btn ghost" data-act="manual">手入力にする</button></div>
       </div>`;
     const setErr = (msg) => { const el = $('#scan-error', dlg); el.hidden = !msg; el.textContent = msg || ''; };
-    const finish = (text, source) => {
+    const finish = (text, source, method = '') => {
       const parsed = R.parseReceiptText(text, { rules: state.rules });
       dlg.close();
-      openForm({ parsed: { ...parsed, rawText: text, source } });
+      openForm({ parsed: { ...parsed, rawText: text, source, method } });
     };
     $('#scan-file', dlg).onchange = async (e) => {
       const file = e.target.files[0];
@@ -88,9 +89,9 @@ export function createLedger(env) {
       prog.hidden = false;
       $('#scan-file-label', dlg).setAttribute('aria-disabled', 'true');
       try {
-        const { text } = await recognizeImage(file, (msg, p) => { $('#scan-msg', dlg).textContent = msg; $('#scan-bar', dlg).style.width = `${Math.round(p * 100)}%`; });
+        const { text, method } = await recognizeImage(file, (msg, p) => { $('#scan-msg', dlg).textContent = msg; $('#scan-bar', dlg).style.width = `${Math.round(p * 100)}%`; });
         if (!dlg.open) return; // 途中で閉じられた
-        finish(text, 'ocr');
+        finish(text, 'ocr', method);
       } catch (err) {
         console.error(err);
         prog.hidden = true;
@@ -98,7 +99,7 @@ export function createLedger(env) {
       } finally { e.target.value = ''; $('#scan-file-label', dlg).removeAttribute('aria-disabled'); }
     };
     dlg.onclick = (e) => {
-      if (e.target.closest('[data-close]')) return dlg.close();
+      if (e.target.closest('[data-close]') || e.target.closest('[data-close-link]')) return dlg.close();
       const act = e.target.closest('[data-act]')?.dataset.act;
       if (act === 'parse-text') {
         const text = $('#scan-paste', dlg).value;
@@ -123,7 +124,7 @@ export function createLedger(env) {
     const items = base.items.length ? base.items : [{ name: '', amount: '', category: 'その他' }];
     const warnings = parsed?.warnings || [];
     dlg.innerHTML = `<div class="sheet-head"><h2 id="receipt-title">${receipt ? 'レシートを編集' : parsed ? '読み取り結果を確認' : 'レシートを手入力'}</h2><button type="button" class="btn ghost" data-close>閉じる</button></div>
-      ${parsed ? '<p class="notice">文字認識は間違えることがあります。<b>日付・店名・品名・金額・分類</b>を確認し、直してから保存してください。</p>' : ''}
+      ${parsed ? `<p class="notice">文字認識は間違えることがあります。<b>日付・店名・品名・金額・分類</b>を確認し、直してから保存してください。${parsed.method ? `<br><span data-testid="ocr-method">読み取り方式：${esc(parsed.method)}</span>` : ''}</p>` : ''}
       ${warnings.map((w) => `<div class="interp warn">⚠️ ${esc(w)}</div>`).join('')}
       <form class="form" id="receipt-form" novalidate>
         <div class="two"><div class="field"><label for="rf-date">日付</label><input id="rf-date" type="date" value="${esc(base.date)}"></div>

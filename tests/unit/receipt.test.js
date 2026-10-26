@@ -190,3 +190,77 @@ test('分類の基準: 洗剤=日用品 / 食べられる物=食費 / めった�
   assert.equal(R.categorize('フライパン'), '雑費');
   assert.equal(R.categorize('食パン'), '食費');
 });
+
+// 実際のレシート写真をTesseractで読んだ出力（店名・電話・日付・番号はダミーに差し替え、誤読や紙の縁のノイズはそのまま）。
+// ¥が W/\/Y、2が Z、9が d、¥4の金額が欠落、合計行が文字化け、外税のレシート。
+const REAL_NOISY = `サンプルストア ほげ店
+TEL (0000) 00-0000
+本日はど来店有難うどさいます。
+領収午>
+|
+2026年10月26日(月) 16:48 #000001     (
+058001セルフ    068001セルフ     (
+5689 |
+外10 有料レジ袋 大      JM
+外8 じゃがいも (メークイ  WZ98
+外8 さつまいも         \\298
+外8 人参          \\d8
+外8 銘柄計おね正肉     Y646
+ポーード割引 30%            -194
+小計               \\1,150
+外税額        8%      \\91
+外税額        10%    \\0
+   買上点数              5点
+| 講十       1 。の41
+8 (税率 8%装象客      \\1.237)
+M (内消費科等 86       \\91)
+『。 おお予買り      \\1.5O1
+| お釣り        \\260
+`;
+
+test('実写真のノイズだらけのOCR出力から、明細・外税・合計を復元する（読み間違いは警告で知らせる）', () => {
+  const r = R.parseReceiptText(REAL_NOISY, { now: NOW });
+  assert.equal(r.date, '2026-10-26');
+  assert.deepEqual(r.items.map((i) => [i.name.replace(/\s+/g, ''), i.amount, i.category]), [
+    ['有料レジ袋大', 4, '日用品'], ['じゃがいも(メークイ', 298, '食費'], ['さつまいも', 298, '食費'], ['人参', 98, '食費'],
+    ['銘柄計おね正肉', 646, '食費'], ['ポーード割引30%', -194, '食費'], ['消費税（外税）', 91, '食費'],
+  ]);
+  assert.equal(r.total, 1241);
+  assert.equal(r.sumMatches, true);
+  assert.ok(r.warnings.some((w) => w.includes('有料レジ袋大') && w.includes('¥4')), '金額を推定した行は警告する');
+  assert.ok(r.warnings.some((w) => w.includes('小計と外税額')), '合計を計算した旨を警告する');
+});
+
+test('数字に化けやすい文字の補正（Z→2, d→9）と、¥の誤読（W,y,*,\\）', () => {
+  const p = (l) => R.parseReceiptText(`店\n2026/10/25\n${l}\n小計 1`, { now: NOW }).items[0];
+  assert.equal(p('牛乳 WZ98').amount, 298);
+  assert.equal(p('牛乳 \\d8').amount, 98);
+  assert.equal(p('牛乳 y646').amount, 646);
+  assert.equal(p('牛乳 *98').amount, 98);
+  assert.equal(p('牛乳 wl.150').amount, 1150);
+});
+
+test('金額を読めない行が2行以上あるときは、差額から推定しない', () => {
+  const r = R.parseReceiptText('店\n2026/10/25\n外8 牛乳 JM\n外8 たまご KK\n外8 豆腐 \\100\n小計 \\500', { now: NOW });
+  assert.ok(!r.warnings.some((w) => w.includes('推定')));
+  assert.equal(r.items.length, 1);
+});
+
+test('日付の年が欠けても、月と日から補って警告する', () => {
+  const r = R.parseReceiptText('店\n926年10朋26日(月) 15:48\n牛乳 \\100\n合計 \\100', { now: NOW });
+  assert.equal(r.date, '2026-10-26');
+  assert.ok(r.warnings.some((w) => w.includes('年を読み取れなかった')));
+});
+
+test('scoreParse: 合計が一致する結果を高く評価する', () => {
+  const good = R.parseReceiptText('店\n2026/10/25\n牛乳 100\n卵 200\n合計 300', { now: NOW });
+  const bad = R.parseReceiptText('店\n2026/10/25\n牛乳 100\n卵 200\n合計 999', { now: NOW });
+  assert.ok(R.scoreParse(good) >= 100);
+  assert.ok(R.scoreParse(bad) < 100);
+  assert.equal(R.scoreParse(R.parseReceiptText('', { now: NOW })), 0);
+});
+
+test('分類: 根菜・いも・鶏肉などの食材', () => {
+  for (const n of ['さつまいも', 'じゃがいも', '里芋', '人参', '銘柄鶏むね正肉', '鶏ささみ', 'ブロッコリー', '小松菜', '油揚げ', 'ごぼう']) assert.equal(R.categorize(n), '食費', n);
+  assert.equal(R.categorize('有料レジ袋 大'), '日用品');
+});
