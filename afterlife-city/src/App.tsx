@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CityCanvas } from './render/Scene';
+import { detectTier } from './render/quality';
 import { newGame, sim, useGame } from './store/game';
 import { step, catchUp } from './sim/engine';
 import { loadGame, saveGame } from './store/persist';
@@ -105,6 +106,7 @@ export default function App() {
   const tab = useGame(s => s.tab);
   const setTab = useGame(s => s.setTab);
   const desktop = useDesktop();
+  const tier = useGame(s => s.quality);
   const panelOpen = tab !== 'city';
   const frameloop = !ready || (!desktop && panelOpen) ? 'never' : 'always';
 
@@ -112,7 +114,7 @@ export default function App() {
     <div className="relative h-dvh w-screen overflow-hidden bg-slate-950 text-slate-100">
       <Boot />
       {ready && <SimDriver />}
-      <div className="absolute inset-0">{ready && <CityCanvas frameloop={frameloop} />}</div>
+      <div className="absolute inset-0">{ready && <CityCanvas frameloop={frameloop} tier={tier} />}</div>
       {!ready && <div className="absolute inset-0 grid place-items-center text-sm tracking-[0.3em] text-slate-400">LUMIÈRE BAY</div>}
 
       {ready && <TopBar />}

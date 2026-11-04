@@ -6,6 +6,8 @@ import { sim, useGame } from '../store/game';
 import { isOutdoor } from '../sim/paths';
 import { hourOf } from '../sim/clock';
 import type { Building, Citizen, WorldState } from '../sim/types';
+import { QUALITY, type QualityTier } from './quality';
+import { registry } from './registry';
 import { chooseShot, newDirector, poseFor, type DirectorState, type Shot } from './director';
 
 // ------------------------------------------------------------------ palettes
@@ -35,7 +37,7 @@ function shade(hex: string, tint: number): THREE.Color {
 const NIGHT = new THREE.Color('#080f22'), DUSK = new THREE.Color('#f08a5d'), DAY = new THREE.Color('#86bfe8');
 const WGREY = new THREE.Color('#8f9ba5');
 
-function Lighting() {
+function Lighting({ shadowMap }: { shadowMap: number }) {
   const { scene } = useThree();
   const sun = useRef<THREE.DirectionalLight>(null!);
   const moon = useRef<THREE.DirectionalLight>(null!);
@@ -65,7 +67,7 @@ function Lighting() {
   return (
     <>
       <hemisphereLight ref={hemi} args={['#cfe6ff', '#4a5a40', 0.8]} />
-      <directionalLight ref={sun} castShadow shadow-mapSize={[1024, 1024]} shadow-camera-left={-110} shadow-camera-right={110}
+      <directionalLight ref={sun} castShadow shadow-mapSize={[shadowMap, shadowMap]} shadow-camera-left={-110} shadow-camera-right={110}
         shadow-camera-top={90} shadow-camera-bottom={-90} shadow-camera-near={10} shadow-camera-far={420} shadow-bias={-0.0005} />
       <directionalLight ref={moon} position={[-80, 90, -40]} color="#7f9bff" />
     </>
@@ -107,9 +109,9 @@ function Mountains() {
   );
 }
 
-function Sea() {
+function Sea({ seg }: { seg: [number, number] }) {
   const ref = useRef<THREE.Mesh>(null!);
-  const geo = useMemo(() => { const g = new THREE.PlaneGeometry(320, 150, 70, 36); g.rotateX(-Math.PI / 2); return g; }, []);
+  const geo = useMemo(() => { const g = new THREE.PlaneGeometry(320, 150, seg[0], seg[1]); g.rotateX(-Math.PI / 2); return g; }, [seg]);
   const base = useMemo(() => Float32Array.from(geo.attributes.position.array as ArrayLike<number>), [geo]);
   const mat = useRef<THREE.MeshStandardMaterial>(null!);
   const tint = useMemo(() => new THREE.Color(), []);
@@ -313,7 +315,7 @@ function Props() {
   );
 }
 
-function Trees() {
+function Trees({ scale }: { scale: number }) {
   const trunks = useRef<THREE.InstancedMesh>(null!);
   const crowns = useRef<THREE.InstancedMesh>(null!);
   const pts = useMemo(() => {
@@ -328,8 +330,8 @@ function Trees() {
     }
     for (let i = 0; i < 24; i++) out.push([-85 + r() * 18, -25 + r() * 40, 0.8 + r()]);
     for (let i = 0; i < 20; i++) out.push([80 + r() * 18, -50 + r() * 70, 0.9 + r()]);
-    return out.filter(([x, z]) => !Object.values(sim.world.buildings).some(b => Math.abs(b.x - x) < b.w / 2 + 2 && Math.abs(b.z - z) < b.d / 2 + 2) && !(Math.abs(z) < 3 || Math.abs(z - 30) < 3 || Math.abs(z + 30) < 3));
-  }, []);
+    return out.filter((_, i) => (i * 0.618) % 1 < scale).filter(([x, z]) => !Object.values(sim.world.buildings).some(b => Math.abs(b.x - x) < b.w / 2 + 2 && Math.abs(b.z - z) < b.d / 2 + 2) && !(Math.abs(z) < 3 || Math.abs(z - 30) < 3 || Math.abs(z + 30) < 3));
+  }, [scale]);
   useEffect(() => {
     const m = new THREE.Matrix4();
     pts.forEach(([x, z, s], i) => {
@@ -430,9 +432,9 @@ function Citizens() {
 }
 
 // ------------------------------------------------------------------ rain
-function Rain() {
+function Rain({ drops }: { drops: number }) {
   const ref = useRef<THREE.LineSegments>(null!);
-  const N = 1800;
+  const N = drops;
   const geo = useMemo(() => {
     const g = new THREE.BufferGeometry();
     const arr = new Float32Array(N * 6);
@@ -468,7 +470,6 @@ function CameraRig() {
   const director = useRef<DirectorState>(newDirector());
   const look = useRef(new THREE.Vector3(0, 0, 0));
   const shotStart = useRef(0);
-  const lastInteract = useRef(-999);
   const userActive = useRef(false);
   const lastMode = useRef('auto');
   const focusSeen = useRef(0);
@@ -477,14 +478,14 @@ function CameraRig() {
   useEffect(() => {
     camera.position.set(0, 95, 120);
     look.current.set(0, 0, 0);
-    if (location.search.includes('debug')) (window as unknown as { __cam: unknown }).__cam = { camera, look: look.current, sim };
+    registry.camera = camera as THREE.PerspectiveCamera; registry.look = look.current;
   }, [camera]);
 
   useFrame(({ clock }, dt) => {
     const g = useGame.getState();
     const now = clock.elapsedTime;
     let mode = g.cameraMode;
-    if (mode === 'manual' && performance.now() / 1000 - lastInteract.current > MANUAL_RESUME_SECONDS && !userActive.current) {
+    if (mode === 'manual' && performance.now() / 1000 - registry.lastInteract > MANUAL_RESUME_SECONDS && !userActive.current) {
       g.setCameraMode('auto'); mode = 'auto';
     }
     if (mode === 'manual') { lastMode.current = mode; return; }
@@ -523,36 +524,50 @@ function CameraRig() {
       onStart={() => { userActive.current = true; }}
       onChange={() => {
         if (userActive.current && useGame.getState().cameraMode !== 'manual') useGame.getState().setCameraMode('manual');
-        lastInteract.current = performance.now() / 1000;
+        registry.lastInteract = performance.now() / 1000;
       }}
-      onEnd={() => { userActive.current = false; lastInteract.current = performance.now() / 1000; }}
+      onEnd={() => { userActive.current = false; registry.lastInteract = performance.now() / 1000; }}
     />
   );
 }
 
-export function CityCanvas({ frameloop }: { frameloop: 'always' | 'never' }) {
-  const coarse = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
+function StatsProbe() {
+  const gl = useThree(s => s.gl);
+  useEffect(() => { gl.info.autoReset = false; }, [gl]);
+  useFrame(() => {
+    // Runs before this frame's render, so info holds the previous completed frame.
+    const i = gl.info;
+    registry.stats = { drawCalls: i.render.calls, triangles: i.render.triangles, geometries: i.memory.geometries, textures: i.memory.textures };
+    i.reset();
+  });
+  return null;
+}
+
+export function CityCanvas({ frameloop, tier }: { frameloop: 'always' | 'never'; tier: QualityTier }) {
+  const q = QUALITY[tier];
   const select = useGame(s => s.selectCitizen);
   const selectB = useGame(s => s.selectBuilding);
   return (
     <Canvas
-      shadows={!coarse} frameloop={frameloop} dpr={[1, coarse ? 1.5 : 2]}
+      key={tier}
+      shadows={q.shadows} frameloop={frameloop} dpr={[1, q.dprMax]}
       camera={{ fov: 50, near: 0.5, far: 700, position: [0, 95, 120] }}
-      gl={{ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: false }}
+      gl={{ antialias: q.antialias, powerPreference: 'high-performance', preserveDrawingBuffer: false }}
       onPointerMissed={() => { select(null); selectB(null); }}
     >
-      <Lighting />
+      <Lighting shadowMap={q.shadowMap} />
       <LightsDriver />
       <Ground />
-      <Sea />
+      <Sea seg={q.seaSegments} />
       <Roads />
       <Buildings />
       <Props />
-      <Trees />
+      <Trees scale={q.treeScale} />
       <Boats />
       <Citizens />
-      <Rain />
+      <Rain drops={q.rainDrops} />
       <CameraRig />
+      <StatsProbe />
     </Canvas>
   );
 }

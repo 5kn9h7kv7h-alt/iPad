@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "server": "node server/index.mjs"
+    "server": "node server/index.mjs",
+    "test:e2e": "node tests/e2e/smoke.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",

@@ -4,6 +4,7 @@ import { advance, catchUp } from '../sim/engine';
 import type { SimEvent, WorldState } from '../sim/types';
 import type { AiLogEntry } from '../ai/service';
 import type { AiStatus } from '../ai/client';
+import { detectTier, saveTier, type QualityTier } from '../render/quality';
 
 /** The world is a plain mutable object, kept outside React state so rendering load never corrupts it. */
 export const sim: { world: WorldState } = { world: createWorld() };
@@ -29,6 +30,8 @@ interface GameStore {
   toast: string | null;
   documentaryFor: string | null;
   focus: { buildingId: string; at: number } | null;
+  quality: QualityTier;
+  setQuality: (q: QualityTier) => void;
   focusBuilding: (id: string) => void;
   setTab: (t: Tab) => void;
   setSpeed: (s: Speed) => void;
@@ -52,6 +55,8 @@ export const useGame = create<GameStore>((set, get) => ({
   rev: 0, ready: false, tab: 'city', speed: 1, selectedCitizen: null, selectedBuilding: null, spotlight: null,
   cameraMode: 'auto', shotLabel: 'Aerial Shot', aiStatus: { enabled: false, provider: null, model: null }, aiEnabled: true,
   aiLog: [], digest: null, toast: null, documentaryFor: null, focus: null,
+  quality: detectTier(),
+  setQuality: quality => { saveTier(quality); set({ quality }); },
   focusBuilding: id => set({ focus: { buildingId: id, at: Date.now() }, tab: 'city', selectedBuilding: id, selectedCitizen: null, cameraMode: 'auto' }),
   setTab: tab => set({ tab }),
   setSpeed: speed => set({ speed }),

@@ -12,6 +12,8 @@ export function SettingsPanel() {
   const say = useGame(s => s.say);
   const speed = useGame(s => s.speed);
   const replaceWorld = useGame(s => s.replaceWorld);
+  const quality = useGame(s => s.quality);
+  const setQuality = useGame(s => s.setQuality);
   const file = useRef<HTMLInputElement>(null);
 
   const save = async () => say((await saveGame({ world: sim.world, savedAtMs: Date.now(), speed, aiEnabled })) ? '保存しました' : '保存できませんでした（ブラウザの設定を確認してください）');
@@ -48,6 +50,12 @@ export function SettingsPanel() {
             {aiLog.slice(0, 8).map((l, i) => <li key={i} className={l.ok ? 'text-emerald-300' : 'text-slate-500'}>{l.text}</li>)}
           </ul>
         )}
+      </Section>
+      <Section title="画質">
+        <div className="flex gap-2">
+          {([['low', '軽量'], ['mid', '標準（スマホ）'], ['high', '高画質（PC）']] as const).map(([k, l]) => <Chip key={k} active={quality === k} onClick={() => setQuality(k)}>{l}</Chip>)}
+        </div>
+        <p className="mt-2 text-[11px] text-slate-500">スマホは標準が既定です。発熱や動作の重さを感じたら軽量にしてください。</p>
       </Section>
       <Section title="セーブ・ロード">
         <p className="mb-2 text-xs text-slate-400">街は約20秒ごと、および画面を離れるときに自動保存されます。次に開いたとき、経過時間ぶんの暮らしが進みます。</p>
