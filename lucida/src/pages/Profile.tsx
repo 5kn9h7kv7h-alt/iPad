@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { adaptWeights } from '../ai/scoring';
 import { PageHead, SectionHead } from '../components/parts';
 import { useLucida } from '../store';
 
@@ -60,7 +61,15 @@ export function Profile() {
             <option value="auto">自動（AIが使えるときはAI）</option>
             <option value="rule">ルールベースのみ（費用ゼロ）</option>
           </select>
+          <label className="field-label" htmlFor="web">外部情報（Web検索）<small>
+            {aiAvailable ? '許可すると、探索・関連発見の検索で、キーワードと要約プロフィールがAI中継サーバー経由で外部に送られます。自動生成では使いません。' : 'AIエンドポイント未設定のため、いまは使われません（設定しても外部へは送信されません）。'}</small></label>
+          <select id="web" value={data.prefs.webSearch ? 'on' : 'off'} onChange={(e) => guard(() => savePrefs({ webSearch: e.target.value === 'on' }))}>
+            <option value="off">許可しない（既定）</option>
+            <option value="on">許可する</option>
+          </select>
         </div>
+        <p className="small muted">いまの選び方の重み（反応に応じて自動で調整されます）：</p>
+        <p className="summary">{Object.entries(adaptWeights(data.interactions)).map(([k, v]) => `${k} ${Math.round(v * 100)}%`).join(' / ')}</p>
       </section>
 
       <section>

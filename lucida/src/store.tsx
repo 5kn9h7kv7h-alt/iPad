@@ -9,7 +9,7 @@ import type {
   Discovery, Interaction, InteractionKind, Interest, Note, NoteKind, Prefs, Question, Source,
 } from './domain/types';
 import { DEFAULT_PREFS } from './domain/types';
-import { newId, nowIso } from './domain/util';
+import { newId, nowIso, parseHttpUrl } from './domain/util';
 
 export interface Data {
   interests: Interest[]; discoveries: Discovery[]; sources: Source[]; questions: Question[];
@@ -38,6 +38,9 @@ interface Ctx {
   setQuestionStatus(id: string, status: Question['status']): Promise<void>;
   removeQuestion(id: string): Promise<void>;
   removeNote(id: string): Promise<void>;
+  addSource(discoveryId: string, input: { title: string; url: string; note?: string }): Promise<void>;
+  toggleVerified(sourceId: string): Promise<void>;
+  removeSource(sourceId: string): Promise<void>;
   exportJson(): Promise<string>;
   importJson(text: string): Promise<void>;
   wipe(): Promise<void>;
@@ -155,6 +158,24 @@ export function LucidaProvider({ children, repoOverride }: { children: ReactNode
       },
       async removeQuestion(id) { await need().repo.questions.remove(id); await reload(); },
       async removeNote(id) { await need().repo.notes.remove(id); await reload(); },
+      async addSource(discoveryId, input) {
+        const { repo } = need();
+        const url = parseHttpUrl(input.url);
+        if (!url) throw new Error('URLは http:// または https:// で始まる形式で入力してください');
+        const title = input.title.trim() || url;
+        await repo.sources.put({ id: newId(), discoveryId, title, url, fetchedAt: nowIso(), note: input.note?.trim() || undefined, origin: 'user', verifiedAt: nowIso() });
+        await reload();
+      },
+      async toggleVerified(sourceId) {
+        const { repo } = need(); const s = await repo.sources.get(sourceId); if (!s) return;
+        await repo.sources.put({ ...s, verifiedAt: s.verifiedAt ? undefined : nowIso() });
+        await reload();
+      },
+      async removeSource(sourceId) {
+        const { repo } = need(); const s = await repo.sources.get(sourceId);
+        if (s?.origin !== 'user') throw new Error('自分で追加した出典だけ削除できます');
+        await repo.sources.remove(sourceId); await reload();
+      },
       async exportJson() { return JSON.stringify({ app: 'lucida', version: 1, exportedAt: nowIso(), ...(await need().repo.exportAll()) }, null, 2); },
       async importJson(text) {
         const { repo } = need();

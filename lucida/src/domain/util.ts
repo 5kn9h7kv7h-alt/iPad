@@ -42,3 +42,11 @@ export function relTime(iso: string, now = new Date()): string {
   const d = new Date(iso);
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
+
+/** http(s) のURLだけを受け付ける。javascript: などは拒否。 */
+export function parseHttpUrl(raw: string): string | null {
+  try {
+    const u = new URL(raw.trim());
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.toString() : null;
+  } catch { return null; }
+}

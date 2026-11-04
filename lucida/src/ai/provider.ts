@@ -8,6 +8,10 @@ export interface GenerateRequest {
   avoidKeys: string[];
   category?: Category;
   keyword?: string;
+  /** いずれかに合致するテーマ（関連発見の探索用） */
+  keywords?: string[];
+  /** ユーザーが許可した場合のみ true。サーバー側でWeb検索を使ってよい */
+  allowWebSearch?: boolean;
   count: number;
 }
 

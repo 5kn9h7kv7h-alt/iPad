@@ -20,6 +20,10 @@ export interface GenerateOptions {
   count: number;
   category?: Category;
   keyword?: string;
+  /** いずれかに合致するテーマ（関連発見の探索） */
+  keywords?: string[];
+  /** 手動の探索で、許可済みならWeb検索を使う（Homeの自動生成では使わない） */
+  web?: boolean;
   /** Homeの最後の1枠を、既存の興味から離れたテーマにする */
   exploreLast?: boolean;
 }
@@ -59,7 +63,8 @@ export function createEngine(deps: EngineDeps) {
       profileSummary: summary,
       interests: interests.map((i) => ({ name: i.name, weight: i.weight })),
       avoidKeys: discoveries.map((d) => d.sourceKey),
-      category: opts.category, keyword: opts.keyword, count: want,
+      category: opts.category, keyword: opts.keyword, keywords: opts.keywords, count: want,
+      allowWebSearch: !!opts.web && prefs.webSearch,
     };
 
     let provider: DiscoveryProvider = ruleBasedProvider;
@@ -67,7 +72,7 @@ export function createEngine(deps: EngineDeps) {
     let candidates: Candidate[] = [];
     const useRemote = !!deps.remote && prefs.aiMode === 'auto';
     if (useRemote) {
-      const cacheKey = 'gen:' + hashText(JSON.stringify([summary, opts.category, opts.keyword, req.avoidKeys.length, today, want]));
+      const cacheKey = 'gen:' + hashText(JSON.stringify([summary, opts.category, opts.keyword, opts.keywords, req.allowWebSearch, req.avoidKeys.length, today, want]));
       const cached = await repo.cache.get(cacheKey);
       try {
         if (cached && Date.now() - new Date(cached.createdAt).getTime() < CACHE_TTL_MS) {
@@ -97,7 +102,7 @@ export function createEngine(deps: EngineDeps) {
       uniq.push(c);
     }
     if (uniq.length === 0) {
-      return { created: [], provider: provider.id, notice: notice ?? (opts.keyword || opts.category ? '条件に合う新しい発見はまだありません。' : '新しく出せる発見が尽きました。興味を追加すると広がります。') };
+      return { created: [], provider: provider.id, notice: notice ?? (opts.keyword || opts.keywords?.length || opts.category ? '条件に合う新しい発見はまだありません。' : '新しく出せる発見が尽きました。興味を追加すると広がります。') };
     }
 
     const recent = [...discoveries].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 10);
@@ -122,6 +127,7 @@ export function createEngine(deps: EngineDeps) {
         const src: Source = {
           id: newId(), discoveryId: id, title: s.title, url: s.url,
           fetchedAt: c.provenance === 'bundled' ? CATALOG_CURATED_AT : nowIso(),
+          origin: c.provenance === 'bundled' ? 'bundled' : 'ai',
           note: c.provenance === 'bundled' ? '同梱カタログに記録した出典（リンク先の再確認は未実施）' : undefined,
         };
         await repo.sources.put(src);

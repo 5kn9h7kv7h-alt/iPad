@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Actions, Kicker, Row, SectionHead } from '../components/parts';
 import type { Scores } from '../domain/types';
@@ -8,12 +8,17 @@ const SCORE_LABEL: Record<keyof Omit<Scores, 'total'>, string> = {
   interest: 'Interest 興味との関連', novelty: 'Novelty 新規性', utility: 'Utility 実用性', timing: 'Timing タイミング', diversity: 'Diversity 多様性',
 };
 
+const ORIGIN_JA = { bundled: '同梱カタログ', ai: 'AI・検索由来', user: '自分で追加' } as const;
 const safeDecode = (u: string) => { try { return decodeURI(u); } catch { return u; } };
 
 export function DiscoveryDetail() {
   const { id } = useParams();
   const nav = useNavigate();
-  const { data } = useLucida();
+  const { data, generate, addSource, toggleVerified, removeSource, say } = useLucida();
+  const [busy, setBusy] = useState(false);
+  const [relMsg, setRelMsg] = useState<string | null>(null);
+  const [form, setForm] = useState({ title: '', url: '', note: '' });
+  const [formErr, setFormErr] = useState<string | null>(null);
   const d = data.discoveries.find((x) => x.id === id);
   const sources = data.sources.filter((s) => s.discoveryId === id);
   const related = useMemo(() => {
@@ -40,11 +45,36 @@ export function DiscoveryDetail() {
           {sources.map((s) => (
             <li key={s.id}>
               <a href={s.url} target="_blank" rel="noopener noreferrer">{s.title}</a>
-              <span className="small muted">記録日時 {new Date(s.fetchedAt).toLocaleDateString('ja-JP')}　{safeDecode(s.url)}</span>
+              <span className="small muted">
+                {ORIGIN_JA[s.origin ?? 'bundled']} · 記録日時 {new Date(s.fetchedAt).toLocaleDateString('ja-JP')}
+                {s.verifiedAt ? ` · 確認済み（${new Date(s.verifiedAt).toLocaleDateString('ja-JP')}）` : ' · 未確認'}
+              </span>
+              <span className="small muted url">{safeDecode(s.url)}</span>
               {s.note && <span className="small muted">{s.note}</span>}
+              <span className="small">
+                <button className="link" onClick={() => toggleVerified(s.id)}>{s.verifiedAt ? '確認済みを解除' : 'リンク先を確認した'}</button>
+                {s.origin === 'user' && <> · <button className="link danger" onClick={() => removeSource(s.id).catch((e) => say(e.message))}>削除</button></>}
+              </span>
             </li>
           ))}
         </ul>
+        <details className="why">
+          <summary>出典を自分で追加する</summary>
+          <form className="form" onSubmit={async (e) => {
+            e.preventDefault(); setFormErr(null);
+            try { await addSource(d.id, form); setForm({ title: '', url: '', note: '' }); say('出典を追加しました'); }
+            catch (err) { setFormErr((err as Error).message); }
+          }}>
+            <label className="field-label" htmlFor="s-url">URL</label>
+            <input id="s-url" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://" inputMode="url" required />
+            <label className="field-label" htmlFor="s-title">タイトル（任意）</label>
+            <input id="s-title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} maxLength={120} />
+            <label className="field-label" htmlFor="s-note">メモ（任意）</label>
+            <input id="s-note" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} maxLength={200} />
+            <div className="form-foot"><button className="btn" type="submit">追加</button></div>
+            {formErr && <p role="alert" className="banner error">{formErr}</p>}
+          </form>
+        </details>
       </section>
 
       <section>
@@ -71,6 +101,16 @@ export function DiscoveryDetail() {
       <section>
         <SectionHead en="Related" ja="関連する発見" />
         {related.length > 0 && <ol className="rows">{related.map((r) => <Row key={r.id} d={r} />)}</ol>}
+        <div className="more">
+          <button className="btn" disabled={busy} onClick={async () => {
+            setBusy(true); setRelMsg(null);
+            try {
+              const r = await generate({ count: 2, keywords: d.tags.filter((t) => t.length >= 2), web: true });
+              setRelMsg(r.created.length ? `${r.created.length}件の関連する発見を追加しました。` : r.notice ?? '関連する新しい発見はありませんでした。');
+            } catch (e) { console.error(e); setRelMsg('関連する発見の生成に失敗しました。'); } finally { setBusy(false); }
+          }}>{busy ? '探しています…' : '関連する発見を新しく探す'}</button>
+        </div>
+        {relMsg && <p className="banner" role="status">{relMsg}</p>}
         <p className="small muted">テーマから探索する：</p>
         <p className="chips">{d.tags.map((t) => <Link key={t} className="chip" to={`/explore?q=${encodeURIComponent(t)}`}>{t}</Link>)}</p>
       </section>

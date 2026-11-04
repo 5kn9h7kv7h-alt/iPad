@@ -19,6 +19,7 @@ export const ruleBasedProvider: DiscoveryProvider = {
     return CATALOG.filter((c) =>
       !avoid.has(c.sourceKey)
       && (!req.category || c.category === req.category)
-      && (!req.keyword || matchesKeyword(c, req.keyword)));
+      && (!req.keyword || matchesKeyword(c, req.keyword))
+      && (!req.keywords?.length || req.keywords.some((k) => matchesKeyword(c, k))));
   },
 };

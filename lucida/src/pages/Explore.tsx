@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { matchesKeyword } from '../ai/ruleBased';
 import { CATALOG } from '../ai/catalog';
+import { crossFieldPairs } from '../ai/crossField';
+import { Link } from 'react-router-dom';
 import { PageHead, Row, SectionHead } from '../components/parts';
 import { CATEGORIES, CATEGORY_JA, type Category } from '../domain/types';
 import { useLucida } from '../store';
@@ -13,7 +15,7 @@ export function Explore() {
   const [text, setText] = useState(q);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const { data, generate, say } = useLucida();
+  const { data, generate, say, aiAvailable } = useLucida();
 
   const set = (next: { q?: string; c?: Category | null }) => {
     const p = new URLSearchParams(params);
@@ -37,10 +39,12 @@ export function Explore() {
     return [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([t]) => t);
   }, [cat, q]);
 
+  const pairs = useMemo(() => crossFieldPairs(data.discoveries), [data.discoveries]);
+
   const discover = async () => {
     setBusy(true); setMessage(null);
     try {
-      const r = await generate({ count: 3, category: cat ?? undefined, keyword: q || undefined });
+      const r = await generate({ count: 3, category: cat ?? undefined, keyword: q || undefined, web: true });
       setMessage(r.created.length ? `${r.created.length}件の新しい発見を追加しました。` : r.notice ?? '新しい発見はありませんでした。');
       if (r.created.length && r.notice) say(r.notice);
     } catch (e) { console.error(e); setMessage('発見の生成に失敗しました。もう一度お試しください。'); } finally { setBusy(false); }
@@ -73,12 +77,27 @@ export function Explore() {
         </section>
       )}
 
+      {pairs.length > 0 && (
+        <section>
+          <SectionHead en="Cross Fields" ja="異分野の組み合わせ" />
+          <ul className="exps">
+            {pairs.map((p) => (
+              <li key={p.a.id + p.b.id}>
+                <span className="tag infer">推測</span>
+                <p>{p.text}</p>
+                <p className="small muted"><Link to={`/d/${p.a.id}`}>{p.a.title}</Link> × <Link to={`/d/${p.b.id}`}>{p.b.title}</Link></p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section aria-live="polite">
         <SectionHead en="Results" ja={`見つけた発見 ${found.length}件`} />
         {found.length === 0 ? <p className="empty">この条件で、まだ見た発見はありません。</p> : <ol className="rows">{found.map((d) => <Row key={d.id} d={d} />)}</ol>}
         <div className="more">
           <button className="btn primary" onClick={discover} disabled={busy}>{busy ? '探しています…' : `${q || cat ? 'この条件で' : ''}新しく見つける`}</button>
-          <span className="muted small">今日の生成 {data.usageToday} / {data.prefs.dailyLimit}</span>
+          <span className="muted small">今日の生成 {data.usageToday} / {data.prefs.dailyLimit}{data.prefs.webSearch && aiAvailable ? ' · Web検索: 許可済み' : ''}</span>
         </div>
         {message && <p className="banner" role="status">{message}</p>}
       </section>

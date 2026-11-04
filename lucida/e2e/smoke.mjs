@@ -52,7 +52,7 @@ try {
   check((await page.locator('.detail .tag').allInnerTexts()).join() .includes('事実'), '詳細: 事実/推測/提案が区別される');
   check((await page.locator('.sources a').count()) > 0, '詳細: 出典リンクがある');
   check((await page.locator('.sources a').first().getAttribute('rel'))?.includes('noopener'), '詳細: 外部リンクはnoopener');
-  await page.locator('summary').click();
+  await page.getByText('なぜこの発見が選ばれたか').click();
   await shot(page, '02-detail-390');
   await page.goBack();
 
@@ -135,6 +135,44 @@ try {
     await page.waitForSelector('.page');
     check(!(await overflow(page)), `${n}(390px): 横スクロールなし`);
   }
+
+  // Phase 2: 出典管理・関連発見・Web検索の既定
+  await page.goto(URL_ + '#/profile');
+  await page.getByLabel(/1日の生成上限/).selectOption('20');
+  await page.goto(URL_);
+  await page.waitForSelector('.lead-title');
+  await page.locator('.lead-title a').click();
+  await page.waitForSelector('.sources li');
+  check((await page.locator('.sources li').first().innerText()).includes('未確認'), '出典: 初期状態は「未確認」と表示される');
+  await page.getByRole('button', { name: 'リンク先を確認した' }).first().click();
+  await page.waitForSelector('.sources li:has-text("確認済み（")');
+  check(true, '出典: 「確認した」を記録できる');
+  await page.getByText('出典を自分で追加する').click();
+  await page.getByLabel('URL').fill('javascript:alert(1)');
+  await page.getByRole('button', { name: '追加', exact: true }).click();
+  check(await page.locator('.banner.error[role="alert"]').count() === 1, '出典: http(s)以外のURLは拒否される');
+  await page.getByLabel('URL').fill('https://example.org/paper');
+  await page.getByLabel('タイトル（任意）').fill('自分で見つけた論文');
+  await page.getByRole('button', { name: '追加', exact: true }).click();
+  await page.waitForSelector('.sources li:has-text("自分で追加")');
+  check(true, '出典: 自分で出典を追加できる(自分で追加と表示)');
+  const before = await page.evaluate(async () => (await new Promise((res) => { const r = indexedDB.open('lucida'); r.onsuccess = () => { const q = r.result.transaction('discoveries').objectStore('discoveries').count(); q.onsuccess = () => res(q.result); }; })));
+  await page.getByRole('button', { name: '関連する発見を新しく探す' }).click();
+  await page.waitForSelector('.banner[role="status"]');
+  const after = await page.evaluate(async () => (await new Promise((res) => { const r = indexedDB.open('lucida'); r.onsuccess = () => { const q = r.result.transaction('discoveries').objectStore('discoveries').count(); q.onsuccess = () => res(q.result); }; })));
+  check(after > before, `関連発見: 新しい発見が追加される(${before}→${after})`);
+  await page.goto(URL_ + '#/profile');
+  check((await page.getByLabel(/外部情報/).inputValue()) === 'off', 'Web検索: 既定は「許可しない」');
+  await page.getByLabel(/外部情報/).selectOption('on');
+  await page.reload();
+  check((await page.getByLabel(/外部情報/).inputValue()) === 'on', 'Web検索: 許可設定が保持される');
+  await page.goto(URL_ + '#/archive');
+  await page.getByRole('tab', { name: '出典' }).click();
+  check((await page.locator('.entries li:has-text("自分で見つけた論文")').count()) === 1, 'Archive出典タブ: 追加した出典が履歴に出る');
+  await page.goto(URL_ + '#/explore');
+  await page.waitForSelector('.page');
+  check(!(await overflow(page)), 'Explore(390px): 横スクロールなし(Phase 2)');
+  await shot(page, '09-explore-phase2');
 
   // 全データ削除→空の状態でもエラーにならない
   await page.goto(URL_ + '#/profile');

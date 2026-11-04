@@ -42,6 +42,10 @@ export interface Source {
   url: string;
   fetchedAt: string; // 記録した日時 (ISO)
   note?: string;
+  /** 出典の種類: 同梱カタログ / AI(検索)由来 / ユーザーが追加 */
+  origin?: 'bundled' | 'ai' | 'user';
+  /** ユーザーが実際にリンク先を確認した日時。未確認なら未設定 */
+  verifiedAt?: string;
 }
 
 export type InteractionKind = 'like' | 'dislike' | 'clear_rating' | 'save' | 'unsave' | 'plan' | 'unplan';
@@ -59,11 +63,13 @@ export interface Prefs {
   dailyTarget: number; // Homeで自動生成する枚数
   dailyLimit: number; // 1日に生成できる発見の上限（AI費用の上限にもなる）
   aiMode: 'auto' | 'rule';
+  /** 外部情報(Web検索)の利用許可。明示的にオンにした場合のみ。既定はオフ */
+  webSearch: boolean;
   profileSummary: string;
   summaryUpdatedAt: string;
 }
 export const DEFAULT_PREFS: Prefs = {
-  id: 'prefs', dailyTarget: 3, dailyLimit: 6, aiMode: 'auto', profileSummary: '', summaryUpdatedAt: '',
+  id: 'prefs', dailyTarget: 3, dailyLimit: 6, aiMode: 'auto', webSearch: false, profileSummary: '', summaryUpdatedAt: '',
 };
 
 export interface UsageRow { id: string; count: number } // id = YYYY-MM-DD
