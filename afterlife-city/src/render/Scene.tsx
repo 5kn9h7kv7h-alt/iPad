@@ -7,6 +7,7 @@ import { isOutdoor } from '../sim/paths';
 import { hourOf } from '../sim/clock';
 import type { Building, Citizen, WorldState } from '../sim/types';
 import { QUALITY, type QualityTier } from './quality';
+import { Buildings } from './buildings/Buildings';
 import { AtmosphereDriver, LampPools, Lighting, Sea, SkyDome } from './environment/Environment';
 import { registry } from './registry';
 import { chooseShot, newDirector, poseFor, type DirectorState, type Shot } from './director';
@@ -100,14 +101,12 @@ function Roads() {
 
 // Shared emissive materials so night lighting is a single update per frame.
 const lampMat = new THREE.MeshStandardMaterial({ color: '#ffe2a8', emissive: '#ffc66b', emissiveIntensity: 0 });
-const windowMat = new THREE.MeshStandardMaterial({ color: '#8fb4c8', emissive: '#ffc070', emissiveIntensity: 0, roughness: 0.3, metalness: 0.4 });
 
 function LightsDriver() {
   useFrame(() => {
     const on = sim.world.env.lightsOn;
     const target = on ? 1.6 : 0;
     lampMat.emissiveIntensity += (target - lampMat.emissiveIntensity) * 0.05;
-    windowMat.emissiveIntensity += ((on ? 0.55 : 0) - windowMat.emissiveIntensity) * 0.05;
   });
   return null;
 }
@@ -118,110 +117,6 @@ function Streetlamp({ x, z, big }: { x: number; z: number; big?: boolean }) {
     <group position={[x, 0, z]}>
       <mesh position={[0, hh / 2, 0]} castShadow><cylinderGeometry args={[0.08, 0.1, hh, 6]} /><meshStandardMaterial color="#2c3036" /></mesh>
       <mesh position={[0, hh + 0.1, 0]} material={lampMat}><sphereGeometry args={[big ? 0.45 : 0.32, 10, 8]} /></mesh>
-    </group>
-  );
-}
-
-// ------------------------------------------------------------------ buildings
-function BuildingMesh({ b, selected, onPick }: { b: Building; selected: boolean; onPick: () => void }) {
-  const wall = useMemo(() => shade(WALL[b.kind] ?? '#ccc', b.tint), [b.kind, b.tint]);
-  const roof = useMemo(() => shade(ROOF[b.kind] ?? '#555', b.tint), [b.kind, b.tint]);
-  const closed = b.status === 'closed';
-  const click = (e: { stopPropagation: () => void }) => { e.stopPropagation(); onPick(); };
-
-  if (b.kind === 'park') {
-    return (
-      <group position={[b.x, 0, b.z]} onClick={click}>
-        <mesh position={[0, 0.06, 0]} receiveShadow><boxGeometry args={[b.w, 0.12, b.d]} /><meshStandardMaterial color="#7fb06c" roughness={1} /></mesh>
-        <mesh position={[0, 0.14, 0]}><boxGeometry args={[b.w * 0.78, 0.05, 0.9]} /><meshStandardMaterial color="#d9cfb8" /></mesh>
-        {selected && <SelectRing r={Math.max(b.w, b.d) * 0.55} />}
-      </group>
-    );
-  }
-  if (b.kind === 'plaza' || b.kind === 'beach') {
-    return (
-      <group position={[b.x, 0, b.z]} onClick={click}>
-        <mesh position={[0, b.kind === 'plaza' ? 0.08 : 0.05, 0]} receiveShadow>
-          <boxGeometry args={[b.w, 0.12, b.d]} /><meshStandardMaterial color={b.kind === 'plaza' ? '#d8d0c0' : '#ebdcae'} roughness={1} />
-        </mesh>
-        {selected && <SelectRing r={Math.min(Math.max(b.w, b.d) * 0.55, 14)} />}
-      </group>
-    );
-  }
-  const lighthouse = b.kind === 'lookout';
-  return (
-    <group position={[b.x, 0, b.z]} onClick={click} onPointerOver={() => (document.body.style.cursor = 'pointer')} onPointerOut={() => (document.body.style.cursor = '')}>
-      {lighthouse ? (
-        <>
-          <mesh position={[0, b.h / 2, 0]} castShadow><cylinderGeometry args={[2.2, 3.2, b.h, 12]} /><meshStandardMaterial color={wall} /></mesh>
-          <mesh position={[0, b.h * 0.55, 0]}><cylinderGeometry args={[2.25, 2.6, 1.2, 12]} /><meshStandardMaterial color="#b23a3a" /></mesh>
-          <mesh position={[0, b.h + 0.6, 0]} material={lampMat}><sphereGeometry args={[1.1, 12, 10]} /></mesh>
-          <mesh position={[0, b.h + 1.9, 0]} castShadow><coneGeometry args={[1.6, 1.8, 12]} /><meshStandardMaterial color={roof} /></mesh>
-        </>
-      ) : (
-        <>
-          <mesh position={[0, b.h / 2, 0]} castShadow receiveShadow>
-            <boxGeometry args={[b.w, b.h, b.d]} /><meshStandardMaterial color={closed ? '#8d8d8d' : wall} roughness={0.85} />
-          </mesh>
-          {/* window band */}
-          {!closed && b.h >= 4 && (
-            <>
-              <mesh position={[0, b.h * 0.58, b.d / 2 + 0.02]} material={windowMat}><boxGeometry args={[b.w * 0.8, b.h * (b.kind === 'apartment' ? 0.7 : 0.28), 0.06]} /></mesh>
-              <mesh position={[0, b.h * 0.58, -b.d / 2 - 0.02]} material={windowMat}><boxGeometry args={[b.w * 0.8, b.h * (b.kind === 'apartment' ? 0.7 : 0.28), 0.06]} /></mesh>
-            </>
-          )}
-          {b.kind === 'house' || b.kind === 'bookstore' || b.kind === 'cafe' || b.kind === 'shop' ? (
-            <mesh position={[0, b.h + b.w * 0.18, 0]} rotation-y={Math.PI / 4} castShadow>
-              <coneGeometry args={[Math.max(b.w, b.d) * 0.78, b.w * 0.36, 4]} /><meshStandardMaterial color={closed ? '#666' : roof} roughness={0.9} />
-            </mesh>
-          ) : b.kind === 'tourist' ? (
-            <mesh position={[0, b.h, 0]} castShadow><sphereGeometry args={[b.w * 0.42, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2]} /><meshStandardMaterial color={roof} /></mesh>
-          ) : (
-            <mesh position={[0, b.h + 0.25, 0]} castShadow><boxGeometry args={[b.w + 0.6, 0.5, b.d + 0.6]} /><meshStandardMaterial color={closed ? '#666' : roof} /></mesh>
-          )}
-          {/* awning for shops */}
-          {['cafe', 'shop', 'restaurant', 'convenience', 'bookstore'].includes(b.kind) && !closed && (
-            <mesh position={[0, 2.5, b.d / 2 + 0.7]} rotation-x={0.35}><boxGeometry args={[b.w * 0.7, 0.12, 1.6]} /><meshStandardMaterial color={b.tint > 0.5 ? '#c9473a' : '#2f6f9a'} /></mesh>
-          )}
-          {b.kind === 'station' && <mesh position={[0, b.h + 2.2, b.d / 2 - 0.4]} rotation-x={Math.PI / 2}><cylinderGeometry args={[1, 1, 0.3, 20]} /><meshStandardMaterial color="#f5f1e6" emissive="#ffe0a0" emissiveIntensity={0.1} /></mesh>}
-        </>
-      )}
-      {selected && <SelectRing r={Math.max(b.w, b.d) * 0.7} />}
-      {closed && <Html position={[0, b.h + 2, 0]} center distanceFactor={60}><div className="pointer-events-none rounded bg-black/60 px-2 py-0.5 text-[10px] text-white">閉店</div></Html>}
-    </group>
-  );
-}
-
-function SelectRing({ r }: { r: number }) {
-  return (
-    <mesh rotation-x={-Math.PI / 2} position={[0, 0.25, 0]}>
-      <ringGeometry args={[r, r + 0.5, 48]} /><meshBasicMaterial color="#ffd36b" transparent opacity={0.9} />
-    </mesh>
-  );
-}
-
-function Buildings() {
-  const world = sim.world;
-  const selected = useGame(s => s.selectedBuilding);
-  const select = useGame(s => s.selectBuilding);
-  useGame(s => s.rev);
-  const sig = Object.values(world.buildings).map(b => b.id + b.status).join();
-  const list = useMemo(() => Object.values(world.buildings).filter(b => b.status !== 'demolished'), [sig, world]); // eslint-disable-line react-hooks/exhaustive-deps
-  const lots = world.lots.filter(l => !l.used);
-  return (
-    <group>
-      {list.map(b => <BuildingMesh key={b.id} b={b} selected={selected === b.id} onPick={() => select(b.id)} />)}
-      {lots.map(l => (
-        <mesh key={l.id} position={[l.x, 0.05, l.z]} rotation-x={-Math.PI / 2}><planeGeometry args={[l.w, l.d]} /><meshStandardMaterial color="#a6b08a" roughness={1} /></mesh>
-      ))}
-      {world.construction.map(c => {
-        const l = world.lots.find(x => x.id === c.lotId);
-        return l ? (
-          <group key={c.id} position={[l.x, 0, l.z]}>
-            <mesh position={[0, 1.4, 0]}><boxGeometry args={[l.w * 0.7, 2.8, l.d * 0.7]} /><meshStandardMaterial color="#d9b25c" wireframe /></mesh>
-          </group>
-        ) : null;
-      })}
     </group>
   );
 }

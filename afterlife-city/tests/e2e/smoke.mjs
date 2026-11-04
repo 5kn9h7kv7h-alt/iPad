@@ -16,8 +16,8 @@ const check = (ok, msg) => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${msg}`); if 
 const GPU = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'];
 // target = what we are aiming for on iPhone (V7); ceiling = measured V0 baseline + margin: fail if exceeded (no regressions).
 const BUDGET = {
-  mid: { target: [150, 300_000], ceiling: [175, 300_000] },
-  high: { target: [300, 800_000], ceiling: [360, 800_000] },
+  mid: { target: [150, 300_000], ceiling: [150, 300_000] },
+  high: { target: [300, 800_000], ceiling: [300, 800_000] },
 };
 const within = (s, [dc, tr]) => s.drawCalls <= dc && s.triangles <= tr;
 
