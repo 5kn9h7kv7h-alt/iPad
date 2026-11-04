@@ -28,6 +28,8 @@ export function installDebug(): void {
       registry.lastInteract = performance.now() / 1000 + 3600; // hold the pose
       const c = registry.camera!;
       c.position.set(...pos); c.lookAt(...look);
+      registry.look?.x !== undefined && Object.assign(registry.look, { x: look[0], y: look[1], z: look[2] });
+      registry.controls?.target.set(...look); registry.controls?.update();
     },
   };
 }

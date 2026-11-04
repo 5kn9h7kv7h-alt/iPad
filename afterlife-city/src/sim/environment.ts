@@ -2,8 +2,8 @@ import { clamp, rand } from './rng';
 import { hourOf, seasonOf } from './clock';
 import type { Environment, Season, Weather, WorldState } from './types';
 
-const SUNRISE: Record<Season, number> = { spring: 5.6, summer: 4.8, autumn: 5.9, winter: 6.8 };
-const SUNSET: Record<Season, number> = { spring: 18.2, summer: 19.0, autumn: 17.4, winter: 16.6 };
+export const SUNRISE: Record<Season, number> = { spring: 5.6, summer: 4.8, autumn: 5.9, winter: 6.8 };
+export const SUNSET: Record<Season, number> = { spring: 18.2, summer: 19.0, autumn: 17.4, winter: 16.6 };
 const BASE_TEMP: Record<Season, number> = { spring: 14, summer: 26, autumn: 15, winter: 5 };
 
 const TRANSITIONS: Record<Weather, [Weather, number][]> = {

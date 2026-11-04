@@ -7,6 +7,7 @@ import { isOutdoor } from '../sim/paths';
 import { hourOf } from '../sim/clock';
 import type { Building, Citizen, WorldState } from '../sim/types';
 import { QUALITY, type QualityTier } from './quality';
+import { AtmosphereDriver, LampPools, Lighting, Sea, SkyDome } from './environment/Environment';
 import { registry } from './registry';
 import { chooseShot, newDirector, poseFor, type DirectorState, type Shot } from './director';
 
@@ -33,60 +34,19 @@ function shade(hex: string, tint: number): THREE.Color {
   return c;
 }
 
-// ------------------------------------------------------------------ lighting & sky
-const NIGHT = new THREE.Color('#080f22'), DUSK = new THREE.Color('#f08a5d'), DAY = new THREE.Color('#86bfe8');
-const WGREY = new THREE.Color('#8f9ba5');
-
-function Lighting({ shadowMap }: { shadowMap: number }) {
-  const { scene } = useThree();
-  const sun = useRef<THREE.DirectionalLight>(null!);
-  const moon = useRef<THREE.DirectionalLight>(null!);
-  const hemi = useRef<THREE.HemisphereLight>(null!);
-  const sky = useMemo(() => new THREE.Color(), []);
-  useEffect(() => { scene.fog = new THREE.FogExp2('#86bfe8', 0.003); }, [scene]);
-  useFrame(() => {
-    const w = sim.world, e = w.env;
-    const dl = e.daylight;
-    const h = hourOf(w.time);
-    if (dl < 0.7) sky.copy(NIGHT).lerp(DUSK, dl / 0.7); else sky.copy(DUSK).lerp(DAY, (dl - 0.7) / 0.3);
-    const grey = e.weather === 'rain' ? 0.72 : e.weather === 'fog' ? 0.88 : e.weather === 'cloudy' ? 0.45 : 0;
-    sky.lerp(WGREY.clone().multiplyScalar(0.25 + 0.75 * dl), grey);
-    scene.background = sky;
-    const fog = scene.fog as THREE.FogExp2;
-    fog.color.copy(sky);
-    const target = e.weather === 'fog' ? 0.016 : e.weather === 'rain' ? 0.0065 : 0.0028;
-    fog.density += (target - fog.density) * 0.04;
-    const ang = ((h - 6) / 12) * Math.PI;
-    const elev = Math.max(0.05, Math.sin(ang));
-    sun.current.position.set(Math.cos(ang) * 160, elev * 130 + 8, 50);
-    sun.current.intensity = dl * (e.weather === 'clear' ? 2.4 : e.weather === 'cloudy' ? 1.4 : 0.8);
-    sun.current.color.set(dl < 0.75 ? '#ffb27a' : '#fff4e0');
-    moon.current.intensity = (1 - dl) * 0.35;
-    hemi.current.intensity = 0.25 + dl * 0.75;
-  });
-  return (
-    <>
-      <hemisphereLight ref={hemi} args={['#cfe6ff', '#4a5a40', 0.8]} />
-      <directionalLight ref={sun} castShadow shadow-mapSize={[shadowMap, shadowMap]} shadow-camera-left={-110} shadow-camera-right={110}
-        shadow-camera-top={90} shadow-camera-bottom={-90} shadow-camera-near={10} shadow-camera-far={420} shadow-bias={-0.0005} />
-      <directionalLight ref={moon} position={[-80, 90, -40]} color="#7f9bff" />
-    </>
-  );
-}
-
 // ------------------------------------------------------------------ terrain
 function Ground() {
   return (
     <group>
       <mesh rotation-x={-Math.PI / 2} position={[0, -0.05, -78]} receiveShadow>
         <planeGeometry args={[420, 260]} />
-        <meshStandardMaterial color="#6f9a5a" roughness={1} />
+        <meshStandardMaterial color="#7d8b56" roughness={1} />
       </mesh>
       {/* harbor concrete + beach sand */}
-      <mesh rotation-x={-Math.PI / 2} position={[-48, 0.02, 41]} receiveShadow><planeGeometry args={[62, 22]} /><meshStandardMaterial color="#9aa0a3" roughness={1} /></mesh>
-      <mesh rotation-x={-Math.PI / 2} position={[38, 0.02, 47]} receiveShadow><planeGeometry args={[70, 14]} /><meshStandardMaterial color="#e3d3a2" roughness={1} /></mesh>
+      <mesh rotation-x={-Math.PI / 2} position={[-48, 0.02, 41]} receiveShadow><planeGeometry args={[62, 22]} /><meshStandardMaterial color="#a8a294" roughness={1} /></mesh>
+      <mesh rotation-x={-Math.PI / 2} position={[38, 0.02, 47]} receiveShadow><planeGeometry args={[70, 14]} /><meshStandardMaterial color="#dcc9a0" roughness={1} /></mesh>
       {/* old-town paving */}
-      <mesh rotation-x={-Math.PI / 2} position={[-47, 0.015, 0]} receiveShadow><planeGeometry args={[62, 40]} /><meshStandardMaterial color="#b9ad98" roughness={1} /></mesh>
+      <mesh rotation-x={-Math.PI / 2} position={[-47, 0.015, 0]} receiveShadow><planeGeometry args={[62, 40]} /><meshStandardMaterial color="#c4b394" roughness={1} /></mesh>
       {/* piers */}
       {[-70, -52, -34].map(x => (
         <mesh key={x} position={[x, 0.2, 56]} receiveShadow castShadow><boxGeometry args={[3, 0.5, 16]} /><meshStandardMaterial color="#7d6b58" roughness={0.9} /></mesh>
@@ -103,37 +63,9 @@ function Mountains() {
   return (
     <group>
       {peaks.map(([x, z, r, h], i) => (
-        <mesh key={i} position={[x, h / 2 - 1, z]}><coneGeometry args={[r, h, 7]} /><meshStandardMaterial color={i % 2 ? '#4f6b55' : '#5a7a60'} roughness={1} flatShading /></mesh>
+        <mesh key={i} position={[x, h / 2 - 1, z]}><coneGeometry args={[r, h, 7]} /><meshStandardMaterial color={i % 2 ? '#6f7f60' : '#7d8c6c'} roughness={1} flatShading /></mesh>
       ))}
     </group>
-  );
-}
-
-function Sea({ seg }: { seg: [number, number] }) {
-  const ref = useRef<THREE.Mesh>(null!);
-  const geo = useMemo(() => { const g = new THREE.PlaneGeometry(320, 150, seg[0], seg[1]); g.rotateX(-Math.PI / 2); return g; }, [seg]);
-  const base = useMemo(() => Float32Array.from(geo.attributes.position.array as ArrayLike<number>), [geo]);
-  const mat = useRef<THREE.MeshStandardMaterial>(null!);
-  const tint = useMemo(() => new THREE.Color(), []);
-  useFrame(({ clock }) => {
-    const t = clock.elapsedTime;
-    const amp = 0.15 + sim.world.env.sea * 0.9;
-    const pos = geo.attributes.position as THREE.BufferAttribute;
-    for (let i = 0; i < pos.count; i++) {
-      const x = base[i * 3], z = base[i * 3 + 2];
-      pos.setY(i, Math.sin(x * 0.11 + t * 0.9) * amp * 0.5 + Math.cos(z * 0.16 + t * 0.7) * amp * 0.45);
-    }
-    pos.needsUpdate = true;
-    geo.computeVertexNormals();
-    const dl = sim.world.env.daylight;
-    tint.set('#1c5f86').lerp(new THREE.Color('#06142a'), 1 - dl);
-    if (sim.world.env.weather === 'rain' || sim.world.env.weather === 'cloudy') tint.lerp(new THREE.Color('#4c6577'), 0.4);
-    mat.current.color.copy(tint);
-  });
-  return (
-    <mesh ref={ref} geometry={geo} position={[0, -0.25, 127]} receiveShadow>
-      <meshStandardMaterial ref={mat} color="#1c5f86" roughness={0.25} metalness={0.2} />
-    </mesh>
   );
 }
 
@@ -157,7 +89,7 @@ function Roads() {
         return (
           <mesh key={i} position={[(s.a[0] + s.b[0]) / 2, 0.06, (s.a[1] + s.b[1]) / 2]} receiveShadow>
             <boxGeometry args={[horizontal ? len + 3.2 : 3.2, 0.1, horizontal ? 3.2 : len + 3.2]} />
-            <meshStandardMaterial color="#4a4e55" roughness={0.95} />
+            <meshStandardMaterial color="#5d5850" roughness={0.95} />
           </mesh>
         );
       })}
@@ -168,14 +100,14 @@ function Roads() {
 
 // Shared emissive materials so night lighting is a single update per frame.
 const lampMat = new THREE.MeshStandardMaterial({ color: '#ffe2a8', emissive: '#ffc66b', emissiveIntensity: 0 });
-const windowMat = new THREE.MeshStandardMaterial({ color: '#8fb4c8', emissive: '#ffcf80', emissiveIntensity: 0, roughness: 0.3, metalness: 0.4 });
+const windowMat = new THREE.MeshStandardMaterial({ color: '#8fb4c8', emissive: '#ffc070', emissiveIntensity: 0, roughness: 0.3, metalness: 0.4 });
 
 function LightsDriver() {
   useFrame(() => {
     const on = sim.world.env.lightsOn;
     const target = on ? 1.6 : 0;
     lampMat.emissiveIntensity += (target - lampMat.emissiveIntensity) * 0.05;
-    windowMat.emissiveIntensity += ((on ? 1.1 : 0) - windowMat.emissiveIntensity) * 0.05;
+    windowMat.emissiveIntensity += ((on ? 0.55 : 0) - windowMat.emissiveIntensity) * 0.05;
   });
   return null;
 }
@@ -343,7 +275,7 @@ function Trees({ scale }: { scale: number }) {
     trunks.current.instanceMatrix.needsUpdate = true; crowns.current.instanceMatrix.needsUpdate = true;
   }, [pts]);
   const season = sim.world.env.season;
-  const crown = season === 'autumn' ? '#c9702f' : season === 'winter' ? '#7d8f77' : season === 'spring' ? '#7fbf72' : '#3f8a4a';
+  const crown = season === 'autumn' ? '#b9833a' : season === 'winter' ? '#858a6e' : season === 'spring' ? '#8c9c52' : '#6a8445';
   return (
     <group>
       <instancedMesh ref={trunks} args={[undefined, undefined, pts.length]} castShadow><cylinderGeometry args={[0.18, 0.25, 1.6, 6]} /><meshStandardMaterial color="#6b4a2e" /></instancedMesh>
@@ -408,9 +340,9 @@ function CitizenFigure({ c, store }: { c: Citizen; store: Map<string, RenderStat
   return (
     <group ref={group} scale={[1, h, 1]} onClick={e => { e.stopPropagation(); select(c.id); }}
       onPointerOver={() => (document.body.style.cursor = 'pointer')} onPointerOut={() => (document.body.style.cursor = '')}>
-      <mesh position={[0, 0.55, 0]} castShadow><capsuleGeometry args={[0.28, 0.5, 4, 8]} /><meshStandardMaterial color={TOP[look.top]} /></mesh>
+      <mesh position={[0, 0.55, 0]}><capsuleGeometry args={[0.28, 0.5, 4, 8]} /><meshStandardMaterial color={TOP[look.top]} /></mesh>
       <mesh position={[0, 0.16, 0]}><cylinderGeometry args={[0.27, 0.22, 0.3, 8]} /><meshStandardMaterial color={BOTTOM[look.bottom]} /></mesh>
-      <mesh position={[0, 1.2, 0]} castShadow><sphereGeometry args={[0.22, 12, 10]} /><meshStandardMaterial color={SKIN[look.skin]} /></mesh>
+      <mesh position={[0, 1.2, 0]}><sphereGeometry args={[0.22, 12, 10]} /><meshStandardMaterial color={SKIN[look.skin]} /></mesh>
       <mesh position={[0, 1.27, -0.02]}><sphereGeometry args={[0.235, 12, 10, 0, Math.PI * 2, 0, Math.PI / 1.9]} /><meshStandardMaterial color={HAIR[look.hair]} /></mesh>
       {(selected || spotlight) && (
         <>
@@ -479,6 +411,7 @@ function CameraRig() {
     camera.position.set(0, 95, 120);
     look.current.set(0, 0, 0);
     registry.camera = camera as THREE.PerspectiveCamera; registry.look = look.current;
+    registry.controls = controls.current;
   }, [camera]);
 
   useFrame(({ clock }, dt) => {
@@ -555,8 +488,11 @@ export function CityCanvas({ frameloop, tier }: { frameloop: 'always' | 'never';
       gl={{ antialias: q.antialias, powerPreference: 'high-performance', preserveDrawingBuffer: false }}
       onPointerMissed={() => { select(null); selectB(null); }}
     >
-      <Lighting shadowMap={q.shadowMap} />
+      <AtmosphereDriver />
+      <SkyDome />
+      <Lighting shadowMap={q.shadowMap} shadows={q.shadows} range={q.shadowRange} />
       <LightsDriver />
+      <LampPools />
       <Ground />
       <Sea seg={q.seaSegments} />
       <Roads />
