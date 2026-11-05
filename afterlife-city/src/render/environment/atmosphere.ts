@@ -108,7 +108,7 @@ export function computeAtmosphere(a: Atmosphere, hour: number, season: Season, w
   // ambient: sky-coloured above, warm olive-sand bounce below
   a.hemiSky.copy(a.skyTop).lerp(a.skyHorizon, 0.5).lerp(MOON, a.night * 0.35);
   a.hemiGround.copy(C('#6e6a45')).lerp(C('#e0a45f'), golden * 0.35).multiplyScalar(0.45 + 0.55 * dayAmt);
-  a.hemiIntensity = 0.42 + 0.42 * dayAmt + golden * 0.2;
+  a.hemiIntensity = 0.42 + 0.42 * dayAmt + golden * 0.3;
 
   // fog follows the horizon so distance dissolves into the sky
   a.fogColor.copy(a.skyHorizon);

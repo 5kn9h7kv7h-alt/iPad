@@ -4,11 +4,14 @@ import * as THREE from 'three';
 import { sim } from '../../store/game';
 import { hourOf } from '../../sim/clock';
 import { registry } from '../registry';
+import { cityData } from '../buildings/data';
 import { computeAtmosphere, createAtmosphere, WEATHER_TARGET, type WeatherLook } from './atmosphere';
 
 /** Shared, per-frame atmosphere. Written by <AtmosphereDriver/>, read by sky / sea / lights. */
 export const atmo = createAtmosphere();
 const look: WeatherLook = { ...WEATHER_TARGET.clear };
+
+export const wetness = () => THREE.MathUtils.smoothstep(look.grey, 0.55, 0.85);
 
 /** Must be mounted before the other environment parts so they see this frame's values. */
 export function AtmosphereDriver() {
@@ -107,7 +110,7 @@ void main() {
 export function SkyDome() {
   const mesh = useRef<THREE.Mesh>(null!);
   const mat = useMemo(() => new THREE.ShaderMaterial({
-    vertexShader: SKY_VERT, fragmentShader: SKY_FRAG, side: THREE.BackSide, depthWrite: false, fog: false,
+    vertexShader: SKY_VERT, fragmentShader: SKY_FRAG, side: THREE.BackSide, depthWrite: false, depthTest: true, fog: false,
     uniforms: {
       uTop: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() }, uSunDir: { value: new THREE.Vector3(0, 1, 0) },
       uSunColor: { value: new THREE.Color() }, uCloudLit: { value: new THREE.Color() }, uCloudShade: { value: new THREE.Color() },
@@ -121,7 +124,7 @@ export function SkyDome() {
     u.uSunColor.value.copy(atmo.sunColor); u.uCloudLit.value.copy(atmo.cloudLit); u.uCloudShade.value.copy(atmo.cloudShade);
     u.uNight.value = atmo.night; u.uCover.value = atmo.cover; u.uTime.value = clock.elapsedTime; u.uSunGlow.value = atmo.sunGlow;
   });
-  return <mesh ref={mesh} material={mat} renderOrder={-10} frustumCulled={false}><sphereGeometry args={[480, 32, 16]} /></mesh>;
+  return <mesh ref={mesh} material={mat} renderOrder={100} frustumCulled={false}><sphereGeometry args={[480, 32, 16]} /></mesh>;
 }
 
 // ------------------------------------------------------------------ sea (all wave maths on the GPU)
@@ -192,18 +195,8 @@ export function Sea({ seg }: { seg: [number, number] }) {
 export function LampPools() {
   const ref = useRef<THREE.InstancedMesh>(null!);
   const mat = useRef<THREE.MeshBasicMaterial>(null!);
-  const nodes = useMemo(() => Object.values(sim.world.nodes), []);
-  useEffect(() => {
-    const m = new THREE.Matrix4();
-    nodes.forEach((n, i) => { m.makeTranslation(n.x + 2.3, 0.14, n.z + 2.3); ref.current.setMatrixAt(i, m); });
-    ref.current.instanceMatrix.needsUpdate = true;
-  }, [nodes]);
-  useFrame(() => {
-    const on = sim.world.env.lightsOn ? Math.min(1, 0.25 + atmo.night * 0.9) : 0;
-    mat.current.opacity += (on * 0.55 - mat.current.opacity) * 0.05;
-    ref.current.visible = mat.current.opacity > 0.01;
-  });
-  const geo = useMemo(() => { const g = new THREE.PlaneGeometry(16, 16); g.rotateX(-Math.PI / 2); return g; }, []);
+  const seen = useRef(-1);
+  const geo = useMemo(() => { const g = new THREE.PlaneGeometry(14, 14); g.rotateX(-Math.PI / 2); return g; }, []);
   const tex = useMemo(() => {
     const c = document.createElement('canvas'); c.width = c.height = 64;
     const g = c.getContext('2d')!;
@@ -212,8 +205,20 @@ export function LampPools() {
     g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
     return new THREE.CanvasTexture(c);
   }, []);
+  useFrame(() => {
+    if (seen.current !== cityData.version) {
+      seen.current = cityData.version;
+      const lamps = cityData.anchors.filter(a => a.kind === 'lamp').slice(0, 220);
+      const m = new THREE.Matrix4();
+      lamps.forEach((l, i) => { m.makeTranslation(l.x, 0.2, l.z); ref.current.setMatrixAt(i, m); });
+      ref.current.count = lamps.length; ref.current.instanceMatrix.needsUpdate = true;
+    }
+    const on = sim.world.env.lightsOn ? Math.min(1, 0.25 + atmo.night * 0.9) : 0;
+    mat.current.opacity += (on * 0.5 - mat.current.opacity) * 0.05;
+    ref.current.visible = mat.current.opacity > 0.01;
+  });
   return (
-    <instancedMesh ref={ref} args={[geo, undefined, nodes.length]} frustumCulled={false}>
+    <instancedMesh ref={ref} args={[geo, undefined, 220]} frustumCulled={false}>
       <meshBasicMaterial ref={mat} map={tex} color="#ffb25e" transparent opacity={0} blending={THREE.AdditiveBlending} depthWrite={false} fog={false} />
     </instancedMesh>
   );

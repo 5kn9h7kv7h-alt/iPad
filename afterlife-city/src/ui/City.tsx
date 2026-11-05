@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { sim, useGame, useWorld, type Speed } from '../store/game';
 import { formatDate, formatTime } from '../sim/clock';
 import { interestingCitizen } from '../render/director';
@@ -53,9 +53,7 @@ export function CityOverlay() {
   const setTab = useGame(s => s.setTab);
   const selectCitizen = useGame(s => s.selectCitizen);
   const [sheet, setSheet] = useState(false);
-  const [showEvents, setShowEvents] = useState(true);
 
-  const today = useMemo(() => [...w.events].reverse().filter(e => e.importance >= 12).slice(0, 5), [w.events.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const feat = spotlight ? w.citizens[spotlight] : null;
 
   return (
@@ -95,28 +93,6 @@ export function CityOverlay() {
       {/* info card for picks */}
       {selectedC && <CitizenQuick id={selectedC} />}
       {selectedB && <BuildingQuick id={selectedB} />}
-
-      {/* today's events */}
-      {!selectedC && !selectedB && (
-        <div className="absolute bottom-[78px] left-3 z-10 w-[min(340px,calc(100vw-5.5rem))]">
-          <div className="glass fade-up rounded-2xl p-3">
-            <button className="flex w-full items-center justify-between text-left" onClick={() => setShowEvents(v => !v)}>
-              <span className="text-[10px] uppercase tracking-[0.18em] text-slate-400">今日の出来事</span>
-              <span className="text-xs text-slate-400">{showEvents ? '−' : '＋'}</span>
-            </button>
-            {showEvents && (
-              <ul className="mt-2 space-y-1.5">
-                {today.length === 0 && <li className="text-xs text-slate-500">まだ静かな朝です。</li>}
-                {today.slice(0, 4).map(e => (
-                  <li key={e.id} className="text-xs leading-snug text-slate-200">
-                    <span className="mr-1.5 tabular-nums text-slate-500">{stamp(w, e.time).split(' ')[1]}</span>{e.summary}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      )}
 
       <button onClick={() => setSheet(true)} aria-label="街に介入する"
         className="glass absolute bottom-[78px] right-3 z-10 rounded-full px-4 py-3 text-sm hover:bg-white/20">＋ 介入</button>

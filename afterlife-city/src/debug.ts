@@ -23,6 +23,8 @@ export function installDebug(): void {
       w.time = Math.floor(w.time / 1440) * 1440 + Math.round(hour * 60);
       w.env.weather = weather; w.env.nextWeatherAt = w.time + 100000;
     },
+    /** Jump to day N of the calendar (changes season) keeping the time of day. */
+    setDay(day: number) { const w = sim.world; w.time = day * 1440 + (w.time % 1440); },
     setCamera(pos: [number, number, number], look: [number, number, number]) {
       useGame.getState().setCameraMode('manual');
       registry.lastInteract = performance.now() / 1000 + 3600; // hold the pose

@@ -33,13 +33,17 @@ async function open(browser, ctxOpts, query = '') {
   return page;
 }
 
+const PART = process.env.E2E_PART ?? 'all'; // 'a' = world/features, 'b' = seasons/tiers/desktop (each fits a 2-minute window on slow hosts)
+const runs = k => PART === 'all' || PART === k;
+
 async function main() {
   await new Promise(r => setTimeout(r, 800));
   const browser = await chromium.launch({ args: GPU });
-  const iphone = { ...devices['iPhone 14'] };
+  const iphone = { ...devices['iPhone 14'], deviceScaleFactor: 1 }; // resolution does not change draw-call or triangle counts; keeps software GL fast enough
 
   // ---- 1. iPhone: content counts, budget at 4 times of day, screenshots
   const m = await open(browser, iphone);
+  if (runs('a')) {
   const counts = await m.evaluate(() => window.__afterlife.counts());
   check(counts.citizens === 30 && counts.buildings === 26 && counts.areas === 5, `world intact: ${JSON.stringify(counts)}`);
   const tier = await m.evaluate(() => window.__afterlife.sim && localStorage.getItem('afterlife.quality') || 'auto');
@@ -82,6 +86,29 @@ async function main() {
   check(r.t >= t1 && r.p === 1 && r.c.citizens === 30, `save/restore keeps time, props, 30 residents (${t1}→${r.t})`);
   check(m.errors.length === 0, `no console/page errors${m.errors.length ? ': ' + m.errors.slice(0, 3).join(' | ') : ''}`);
 
+  }
+  // ---- 3b. seasons and weather render without errors (screenshots for review)
+  if (runs('b')) {
+  for (const [name, day, hour, wx] of [['summer', 100, 11, 'clear'], ['autumn', 190, 16.5, 'clear'], ['winter_snow', 250, 12, 'rain'], ['spring_blossom', 5, 9, 'clear']]) {
+    await m.click('button:has-text("1×")');
+    await m.evaluate(([d, h, w]) => { window.__afterlife.setDay(d); window.__afterlife.setTime(h, w); }, [day, hour, wx]);
+    await m.waitForTimeout(3500);
+    await m.evaluate(() => window.__afterlife.setCamera([30, 26, -2], [40, 1, -34]));
+    await m.click('button:has-text("⏸")'); await m.waitForTimeout(1500);
+    await m.screenshot({ path: `${OUT}iphone_${name}.png` });
+    const s = await m.evaluate(() => window.__afterlife.registry.stats);
+    check(within(s, BUDGET.mid.ceiling), `iPhone/mid ${name}: ${s.drawCalls} draw calls, ${Math.round(s.triangles)} tris`);
+  }
+  check(m.errors.length === 0, `seasons/weather: no console/page errors${m.errors.length ? ': ' + m.errors.slice(0, 2).join(' | ') : ''}`);
+
+  // ---- 3c. low tier budget
+  const lo = await open(browser, iphone, '&quality=low');
+  await lo.evaluate(() => window.__afterlife.setTime(17.6)); await lo.waitForTimeout(3000);
+  await lo.evaluate(() => window.__afterlife.setCamera([-30, 38, 70], [-10, 0, 20])); await lo.waitForTimeout(1500);
+  const sl = await lo.evaluate(() => window.__afterlife.registry.stats);
+  check(sl.drawCalls <= 100 && sl.triangles <= 150_000, `iPhone/low golden: ${sl.drawCalls} draw calls (≤100), ${Math.round(sl.triangles)} tris (≤150000)`);
+  await lo.close();
+
   // ---- 4. desktop high tier budget
   const d = await open(browser, { viewport: { width: 1280, height: 800 } });
   await d.evaluate(() => window.__afterlife.setTime(17.6));
@@ -91,6 +118,7 @@ async function main() {
   const sd = await d.evaluate(() => window.__afterlife.registry.stats);
   check(within(sd, BUDGET.high.ceiling), `desktop/high golden: ${sd.drawCalls} draw calls, ${Math.round(sd.triangles)} tris`);
   await d.screenshot({ path: `${OUT}desktop_golden.png` });
+  }
   await browser.close();
 }
 

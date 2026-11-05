@@ -165,7 +165,7 @@ function terrace({ B, W, D, c }: Ctx) {
     for (const [dx, dz] of [[-0.7, 0], [0.7, 0], [0, -0.7], [0, 0.7]]) {
       B.block(x + dx, 0.0, z + dz, 0.4, 0.45, 0.4, c(PAL.wood));
       B.block(x + dx, 0.45, z + dz, 0.4, 0.08, 0.4, c(PAL.golden));
-      B.anchor('seat', x + dx, z + dz);
+      B.anchor('seat', x + dx, z + dz, Math.atan2(-dx, -dz));
     }
     B.cyl(x, 0.8, z, 0.04, 1.5, c(PAL.white));
     B.put('hip', [x, 2.3, z], [2.3, 0.45, 2.3], c(PAL.terracotta));

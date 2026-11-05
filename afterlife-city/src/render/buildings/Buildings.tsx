@@ -7,6 +7,8 @@ import { hourOf } from '../../sim/clock';
 import { atmo } from '../environment/Environment';
 import { buildCity, citySignature } from './city';
 import type { Cell } from './batch';
+import { cityData } from './data';
+import { wetness } from '../environment/Environment';
 
 // ---------------------------------------------------------------- textures
 function plasterTexture(): THREE.CanvasTexture {
@@ -81,6 +83,11 @@ export function Buildings() {
   const geos = useMemo(() => ({
     solid: built.toGeometry(built.solid, false), glass: built.toGeometry(built.glass, true), sign: built.toGeometry(built.sign, false),
   }), [built]);
+  useMemo(() => {
+    cityData.anchors = built.anchors;
+    cityData.boxes = Object.values(world.buildings).filter(b => b.status !== 'demolished' && !['park', 'plaza', 'beach'].includes(b.kind)).map(b => ({ x: b.x, z: b.z, hw: b.w / 2 + 1.5, hd: b.d / 2 + 1.5, h: b.h }));
+    cityData.version++;
+  }, [built]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { geos.solid.dispose(); geos.glass.dispose(); geos.sign.dispose(); }, [geos]);
 
   const plaster = useMemo(plasterTexture, []);
@@ -96,13 +103,15 @@ export function Buildings() {
     const glow = THREE.MathUtils.smoothstep(atmo.night + (1 - atmo.sunGlow) * 0.25, 0.1, 0.7);
     glassUniforms.uGlow.value = glow;
     signMat.emissiveIntensity = glow * 0.55;
+    const wet = wetness();
+    solidMat.roughness = 0.92 - wet * 0.5; solidMat.color.setScalar(1 - wet * 0.2);
   });
 
   const pick = (e: { faceIndex?: number; stopPropagation: () => void }) => {
     e.stopPropagation();
     const f = e.faceIndex ?? -1;
     const r = built.ranges.find(x => f >= x.start && f < x.end);
-    if (r && !r.id.startsWith('lot:')) select(r.id);
+    if (r && !r.id.startsWith('lot:') && r.id !== 'street') select(r.id);
   };
   const sel = selected ? world.buildings[selected] : null;
   const closed = Object.values(world.buildings).filter(b => b.status === 'closed');

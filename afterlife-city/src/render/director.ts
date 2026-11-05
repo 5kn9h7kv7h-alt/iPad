@@ -123,12 +123,16 @@ export function freeSpot(w: WorldState, x: number, z: number): V3 {
 export interface Pose { pos: V3; look: V3 }
 
 /** Where the camera should be right now for a shot. `t` is seconds since the shot began. */
-export function poseFor(w: WorldState, shot: Shot, t: number, clock: number): Pose {
+export const FOV: Record<ShotKind, number> = { aerial: 42, street: 56, follow: 50, event: 46, ambient: 36 };
+
+/** Where the camera should be right now for a shot. `ctx.sunAz` lets aerials favour the sun-lit side of town. */
+export function poseFor(w: WorldState, shot: Shot, t: number, clock: number, ctx: { sunAz: number } = { sunAz: 0 }): Pose {
   switch (shot.kind) {
     case 'aerial': {
-      const a = clock * 0.05;
+      const a = ctx.sunAz + 1.9 + Math.sin(clock * 0.03) * 0.45;   // side-lit: long shadows, glints on the water
       const low = w.env.daylight < 0.9;
-      return { pos: [Math.sin(a) * 120, low ? 62 : 88, 15 + Math.cos(a) * 85], look: [0, 0, -2] };
+      const R = low ? 112 : 128;
+      return { pos: [Math.sin(a) * R * 0.95, low ? 48 + Math.sin(clock * 0.05) * 6 : 82, 12 + Math.cos(a) * R * 0.7], look: [0, 2, 0] };
     }
     case 'follow': {
       const c = shot.citizenId ? w.citizens[shot.citizenId] : undefined;
@@ -145,11 +149,12 @@ export function poseFor(w: WorldState, shot: Shot, t: number, clock: number): Po
     case 'street': {
       const c = shot.citizenId ? w.citizens[shot.citizenId] : undefined;
       const p = shot.fixedPos ?? [0, 3, 10];
-      return { pos: p, look: c ? [c.x, 1.3, c.z] : [p[0], 1.3, p[2] - 10] };
+      const k = Math.min(t, 14) * 0.22;   // slow push-in
+      return { pos: [p[0] - (p[0] - (c?.x ?? p[0])) * k * 0.05, p[1] + k * 0.05, p[2] - (p[2] - (c?.z ?? p[2])) * k * 0.05], look: c ? [c.x, 1.4, c.z] : [p[0], 1.3, p[2] - 10] };
     }
     case 'event': {
       const b = w.buildings[shot.locationId!];
-      return { pos: [b.x + 17 + Math.sin(t * 0.1) * 3, 12, b.z + 20], look: [b.x, 1.5, b.z] };
+      return { pos: [b.x + 17 + Math.sin(t * 0.1) * 3, 10 + Math.min(t, 12) * 0.35, b.z + 20], look: [b.x, 1.5, b.z] };
     }
     default: {
       const p = shot.fixedPos!, l = shot.look!;

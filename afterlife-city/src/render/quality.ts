@@ -10,14 +10,16 @@ export interface QualityParams {
   antialias: boolean;
   rainDrops: number;
   seaSegments: [number, number];
+  treeDetail: 0 | 1;       // crown mesh subdivision
+  driftParticles: number;  // seasonal petals / leaves
   treeScale: number;       // 0..1 share of trees drawn
   budget: { drawCalls: number; triangles: number };
 }
 
 export const QUALITY: Record<QualityTier, QualityParams> = {
-  low: { dprMax: 1, shadows: false, shadowMap: 512, shadowRange: 60, antialias: false, rainDrops: 500, seaSegments: [48, 24], treeScale: 0.5, budget: { drawCalls: 100, triangles: 150_000 } },
-  mid: { dprMax: 1.75, shadows: true, shadowMap: 1024, shadowRange: 70, antialias: true, rainDrops: 1000, seaSegments: [80, 40], treeScale: 0.75, budget: { drawCalls: 150, triangles: 300_000 } },
-  high: { dprMax: 2, shadows: true, shadowMap: 2048, shadowRange: 90, antialias: true, rainDrops: 1800, seaSegments: [128, 64], treeScale: 1, budget: { drawCalls: 300, triangles: 800_000 } },
+  low: { dprMax: 1, shadows: false, shadowMap: 512, shadowRange: 60, antialias: false, rainDrops: 500, seaSegments: [48, 24], treeDetail: 0, driftParticles: 0, treeScale: 0.5, budget: { drawCalls: 100, triangles: 150_000 } },
+  mid: { dprMax: 1.75, shadows: true, shadowMap: 1024, shadowRange: 70, antialias: true, rainDrops: 1000, seaSegments: [80, 40], treeDetail: 1, driftParticles: 120, treeScale: 0.75, budget: { drawCalls: 150, triangles: 300_000 } },
+  high: { dprMax: 2, shadows: true, shadowMap: 2048, shadowRange: 90, antialias: true, rainDrops: 1800, seaSegments: [128, 64], treeDetail: 1, driftParticles: 260, treeScale: 1, budget: { drawCalls: 300, triangles: 800_000 } },
 };
 
 const KEY = 'afterlife.quality';

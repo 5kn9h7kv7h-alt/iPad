@@ -33,7 +33,8 @@ export type Shape = 'box' | 'plane' | 'cyl' | 'cyl8' | 'hip' | 'dome' | 'gable';
 const GEO: Record<Shape, THREE.BufferGeometry> = { box: BOX, plane: PLANE, cyl: CYL12, cyl8: CYL8, hip: HIP, dome: DOME, gable: GABLE };
 
 export interface Cell { text: string; bg: string; fg: string }
-export interface Anchor { buildingId: string; kind: 'door' | 'seat' | 'sign'; x: number; z: number }
+/** heading: world yaw the sitter faces, as angle t with facing vector (sin t, cos t) in (x, z). */
+export interface Anchor { buildingId: string; kind: 'door' | 'seat' | 'sign' | 'lamp'; x: number; z: number; heading?: number }
 export interface Range { id: string; start: number; end: number }
 
 const _m = new THREE.Matrix4(), _n = new THREE.Matrix3(), _p = new THREE.Vector3(), _nv = new THREE.Vector3();
@@ -132,7 +133,18 @@ export class Batch {
     const [ax, az] = this.toWorld(cx, cz);
     this.anchors.push({ buildingId: this.rangeId, kind: 'sign', x: ax, z: az });
   }
-  anchor(kind: Anchor['kind'], lx: number, lz: number): void { const [x, z] = this.toWorld(lx, lz); this.anchors.push({ buildingId: this.rangeId, kind, x, z }); }
+  anchor(kind: Anchor['kind'], lx: number, lz: number, localHeading?: number, parent?: string): void {
+    const [x, z] = this.toWorld(lx, lz);
+    this.anchors.push({ buildingId: parent ?? this.rangeId, kind, x, z, heading: localHeading === undefined ? undefined : localHeading + this.yaw });
+  }
+  /** Run `fn` in a temporary local frame (world x, z, yaw) — used for free-standing street furniture. */
+  frame(x: number, z: number, yaw: number, fn: () => void): void {
+    const sb = this.base.clone(), sy = this.yaw, sx = this.ox, sz = this.oz;
+    this.yaw = yaw; this.ox = x; this.oz = z;
+    this.base.makeRotationY(yaw).setPosition(x, 0, z);
+    fn();
+    this.base.copy(sb); this.yaw = sy; this.ox = sx; this.oz = sz;
+  }
 
   toGeometry(buf: Buf, withLit: boolean): THREE.BufferGeometry {
     const g = new THREE.BufferGeometry();
