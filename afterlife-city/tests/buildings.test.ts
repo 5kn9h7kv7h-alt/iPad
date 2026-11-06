@@ -63,3 +63,17 @@ describe('building geometry (V2)', () => {
     expect(windowLight(w, cafe)).toBeGreaterThan(0.9);
   });
 });
+
+import { migrateWorld, BUILDING_SPECS } from '../src/sim/world';
+import { parseSave } from '../src/store/persist';
+describe('save migration', () => {
+  it('old saves get the new building heights; nothing else changes', () => {
+    const w = createWorld();
+    for (const b of Object.values(w.buildings)) b.h = 4;            // an old, low-rise save
+    const before = JSON.stringify({ ...w, buildings: undefined });
+    const rec = parseSave(JSON.stringify({ world: w, savedAtMs: 0, speed: 1, aiEnabled: true }))!;
+    for (const s of BUILDING_SPECS) expect(rec.world.buildings[s.id].h).toBe(s.h);
+    expect(JSON.stringify({ ...rec.world, buildings: undefined })).toBe(before);
+    expect(migrateWorld(rec.world)).toBe(rec.world);
+  });
+});

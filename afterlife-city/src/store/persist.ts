@@ -1,5 +1,6 @@
 // Save / load through IndexedDB (falls back to nothing when unavailable — the app still runs).
 import type { WorldState } from '../sim/types';
+import { migrateWorld } from '../sim/world';
 
 const DB = 'afterlife-city', STORE = 'save', KEY = 'world', SAVE_VERSION = 1;
 
@@ -32,6 +33,7 @@ export function parseSave(text: string): SaveRecord | null {
   try {
     const rec = JSON.parse(text) as SaveRecord;
     if (!rec?.world || rec.world.version !== SAVE_VERSION || !rec.world.citizens || !rec.world.buildings) return null;
+    migrateWorld(rec.world);
     return rec;
   } catch { return null; }
 }

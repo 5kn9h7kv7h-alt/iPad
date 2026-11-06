@@ -30,7 +30,8 @@ export function designBuilding(B: Batch, b: Building, w: WorldState): void {
   const closed = b.status === 'closed';
   const c = (hex: string) => (closed ? grey(hex) : new THREE.Color(hex));
   const wall = c(pickBy(WALLS, b.tint, seed)), roof = c(pickBy(ROOFS, b.tint, seed + 3));
-  const ctx: Ctx = { w, B, b, W, D, H, seed, wall, roof, closed, c };
+  const G = Math.min(H, GROUND[b.kind] ?? H);   // top of the ground storey (shop fronts, signs); above it: homes
+  const ctx: Ctx = { w, B, b, W, D, H, G, seed, wall, roof, closed, c };
   switch (b.kind) {
     case 'house': house(ctx); break;
     case 'apartment': apartment(ctx); break;
@@ -51,12 +52,15 @@ export function designBuilding(B: Batch, b: Building, w: WorldState): void {
     case 'beach': beach(ctx); break;
     default: B.block(0, 0, 0, W, H, D, wall);
   }
+  if (H - G >= 2.6) upperFloors(ctx);
   B.end();
 }
 
-interface Ctx { w: WorldState; B: Batch; b: Building; W: number; D: number; H: number; seed: number; wall: THREE.Color; roof: THREE.Color; closed: boolean; c: (hex: string) => THREE.Color }
+interface Ctx { w: WorldState; B: Batch; b: Building; W: number; D: number; H: number; G: number; seed: number; wall: THREE.Color; roof: THREE.Color; closed: boolean; c: (hex: string) => THREE.Color }
 
 const foundation = ({ B, W, D, c }: Ctx) => B.block(0, 0, 0, W + 0.3, 0.35, D + 0.3, c(PAL.stone));
+export const GROUND: Partial<Record<string, number>> = { shop: 4, cafe: 4, bookstore: 4, restaurant: 4, house: 3.6, office: 5.4, station: 4.6 };
+
 const door = ({ B, D, c, closed }: Ctx, x: number, w = 1.1, h = 2.1, col: string = PAL.darkwood) => {
   B.block(x, 0.35, D / 2 + 0.04, w, h, 0.1, c(col));
   B.anchor('door', x, D / 2 + 1.2);
@@ -72,7 +76,7 @@ const shop = (ctx: Ctx) => {
   door(ctx, W * DOOR_X.shop!, 1.0, 2.1, PAL.darkwood);
   B.windows(0, W, D, { floors: 1, cols: 2, y0: 0.5, floorH: 3, w: W * 0.2, h: 1.5, shop: 1, seed, skip: (_r, col) => col === 1 });
   awning(ctx, W, D, 2.8, PAL.blue);
-  if (!closed) B.signBoard(b.name, '#e9dcc0', '#3a2f26', 0, H - 0.2, D / 2 + 0.35, Math.min(W * 0.8, 6), 0.8);
+  if (!closed) B.signBoard(b.name, '#e9dcc0', '#3a2f26', 0, ctx.G - 0.2, D / 2 + 0.35, Math.min(W * 0.8, 6), 0.8);
   B.windows(2, W, D, { floors: 1, cols: 1, y0: 0.6, floorH: 3, seed: seed + 1, shop: 0 });
   rooftopBits(ctx);
 };
@@ -144,7 +148,7 @@ function cafe(ctx: Ctx) {
   door(ctx, W * DOOR_X.cafe!, 1.0, 2.1, PAL.teal);
   awning(ctx, W, D, 2.9, PAL.terracotta);
   if (!closed) {
-    B.signBoard(b.name, '#3f2f25', '#f3e3c0', -W * 0.1, H - 0.25, D / 2 + 0.45, Math.min(W * 0.7, 5.5), 0.75, '#2a2019');
+    B.signBoard(b.name, '#3f2f25', '#f3e3c0', -W * 0.1, ctx.G - 0.25, D / 2 + 0.45, Math.min(W * 0.7, 5.5), 0.75, '#2a2019');
     // hanging lamp
     B.lamp(W * 0.34 + 1.0, 2.5, D / 2 + 0.3, 0.16);
     terrace(ctx);
@@ -189,7 +193,7 @@ function bookstore(ctx: Ctx) {
   B.block(-W * 0.2, 0.35, D / 2 + 0.55, 2.4, 0.9, 0.5, c(PAL.wood));                      // book cart
   B.block(-W * 0.2, 1.25, D / 2 + 0.55, 2.2, 0.35, 0.4, c(PAL.golden));
   if (!closed) {
-    B.signBoard(b.name, '#2f4a3a', '#f0e2b8', 0, H - 0.1, D / 2 + 0.4, Math.min(W * 0.85, 6), 0.8, '#1f1a15');
+    B.signBoard(b.name, '#2f4a3a', '#f0e2b8', 0, ctx.G - 0.1, D / 2 + 0.4, Math.min(W * 0.85, 6), 0.8, '#1f1a15');
     B.put('box', [W * 0.45, 2.6, D / 2 + 0.7], [0.08, 0.7, 0.9], c(PAL.golden));         // projecting blade sign
     B.lamp(W * 0.28 + 1.0, 2.4, D / 2 + 0.2, 0.14);
   }
@@ -207,7 +211,7 @@ function restaurant(ctx: Ctx) {
   if (!closed) {
     // noren curtain + paper lanterns
     for (const dx of [-0.5, 0, 0.5]) B.block(dx * 0.9, 1.6, D / 2 + 0.12, 0.5, 0.7, 0.04, c(PAL.red));
-    B.signBoard(b.name, '#f1e6cc', '#7a1f17', 0, H - 0.1, D / 2 + 0.4, Math.min(W * 0.7, 5), 0.8, '#3a2a20');
+    B.signBoard(b.name, '#f1e6cc', '#7a1f17', 0, ctx.G - 0.1, D / 2 + 0.4, Math.min(W * 0.7, 5), 0.8, '#3a2a20');
     for (const x of [-W * 0.38, W * 0.38]) B.lamp(x, 2.3, D / 2 + 0.4, 0.28, '#ffb064');
   }
   B.windows(2, W, D, { floors: 1, cols: 1, y0: 0.6, floorH: 3, seed: seed + 2, shop: 1 });
@@ -353,9 +357,9 @@ function park(ctx: Ctx) {
 }
 function plaza(ctx: Ctx) {
   const { B, W, D, c } = ctx;
-  B.block(0, 0, 0, W, 0.14, D, c(PAL.sand));
-  const n = Math.max(2, Math.round(W / 4));
-  for (let i = 0; i < n; i++) B.block((i + 0.5) / n * W - W / 2, 0.14, 0, W / n - 0.3, 0.03, D - 0.5, c(i % 2 ? PAL.cream : '#cdbd9a'));
+  B.mat = 4; // cobbled square / promenade
+  B.block(0, 0, 0, W, 0.14, D, c('#cdbfa4'));
+  B.mat = -1;
 }
 function beach(ctx: Ctx) {
   const { B, W, D, c } = ctx;
@@ -377,4 +381,36 @@ export function designLot(B: Batch, x: number, z: number, w: number, d: number, 
     B.block(-w * 0.2, 0.08, -d * 0.2, 1.4, 0.4, 0.7, c.set(PAL.stone));
   }
   B.end();
+}
+
+/** Homes above the ground storey: shuttered windows, flower boxes, iron balconies, a string course. */
+function upperFloors(ctx: Ctx): void {
+  const { B, b, W, D, H, G, seed, c } = ctx;
+  const floors = Math.max(1, Math.round((H - G) / 3)), fh = (H - G) / floors;
+  const shutter = c([PAL.blue, PAL.olive, PAL.teal, PAL.wood, '#a8a490'][seed % 5]);
+  B.block(0, G - 0.1, 0, W + 0.22, 0.22, D + 0.22, c('#e6dccb'));          // string course between shop and homes
+  const cols = Math.max(2, Math.round(W / 2.5));
+  for (let f = 0; f < floors; f++) {
+    const y = G + f * fh, v = y + fh * 0.52;
+    for (let k = 0; k < cols; k++) {
+      const u = (k + 0.5) / cols * W - W / 2;
+      const sd = ((seed * 37 + f * 11 + k * 5) % 1000) / 1000;
+      B.window(0, W, D, u, v, 0.9, 1.35, sd, 0, '#efe6d6');
+      B.facePlane(0, W, D, u - 0.74, v, 0.52, 1.42, 0.06, shutter);
+      B.facePlane(0, W, D, u + 0.74, v, 0.52, 1.42, 0.06, shutter);
+      if ((seed + k + f) % 3 === 0) {                                     // flower box
+        B.block(u, v - 0.86, D / 2 + 0.2, 1.1, 0.22, 0.32, c(PAL.terracotta));
+        for (let q = 0; q < 4; q++) B.box(u - 0.4 + q * 0.27, v - 0.58, D / 2 + 0.22, 0.2, 0.2, 0.2, c([PAL.golden, '#c4607a', '#e9e2cf', PAL.olive][(q + k) % 4]));
+      }
+      B.window(1, W, D, u, v, 0.85, 1.25, (sd * 7) % 1, 0, '#efe6d6');
+    }
+    // one iron balcony on the first floor above the shop / door
+    if (f === 0 && b.kind !== 'office' && b.kind !== 'station') {
+      const bu = b.kind === 'house' ? 0 : -W * 0.12, bw = Math.min(W * 0.55, 3.6);
+      B.block(bu, y + 0.1, D / 2 + 0.55, bw, 0.14, 1.1, c('#d9cfbd'));
+      B.facePlane(0, W, D, bu, y + 0.72, bw, 0.95, 1.1, '#2f2c29');
+      for (let q = 0; q < 3; q++) B.put('dome', [bu - bw / 2 + 0.5 + q * (bw - 1) / 2, y + 0.24, D / 2 + 0.75], [0.32, 0.35, 0.32], c(PAL.olive));
+    }
+    for (const sf of [2, 3] as const) B.window(sf, W, D, 0, v, 0.8, 1.2, ((seed * 13 + f + sf) % 997) / 997, 0, '#efe6d6');
+  }
 }

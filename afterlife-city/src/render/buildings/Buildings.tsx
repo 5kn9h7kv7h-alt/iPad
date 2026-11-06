@@ -47,12 +47,63 @@ function signAtlas(cells: Cell[]): THREE.CanvasTexture {
   return t;
 }
 
+// ---------------------------------------------------------------- surface atlas (CC0 textures from Poly Haven)
+const ATLAS_MEAN = [0.8308, 0.2359, 0.4751, 0.3695, 0.5169, 0.7294]; // mean luminance per slot (tools/assets/build-textures.py)
+function loadTex(url: string, srgb: boolean): THREE.Texture {
+  const t = new THREE.TextureLoader().load(new URL(url, document.baseURI).href);
+  t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+  t.anisotropy = 4; t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  return t;
+}
+/**
+ * One material for every wall, roof, street and prop: the vertex attribute aMat picks a slot of the texture
+ * atlas (plaster, roof tiles, stone, wood, cobblestone, flat). Textures only add *detail* (their luminance
+ * relative to the slot mean), so the art-directed vertex colours stay in charge of the palette.
+ */
+function makeSurfaceMaterial(): THREE.MeshStandardMaterial {
+  const m = new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 0.9, metalness: 0,
+    map: loadTex('assets/textures/atlas_diff.jpg', true), normalMap: loadTex('assets/textures/atlas_nrm.jpg', false),
+  });
+  m.onBeforeCompile = sh => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aMat; varying float vMat;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvMat = aMat;');
+    const atlas = `
+varying float vMat;
+const float ATLAS_MEAN[6] = float[6](${ATLAS_MEAN.map(v => v.toFixed(4)).join(', ')});
+float matScale(int mi) { return mi == 1 ? 2.6 : mi == 2 ? 1.25 : mi == 3 ? 1.7 : mi == 4 ? 1.9 : 1.0; }
+vec4 atlasSample(sampler2D tex, vec2 uv, int mi) {
+  vec2 w = uv * matScale(mi);
+  vec2 cell = vec2(float(mi % 3), float(1 - mi / 3));   // textures are flipped: the image's top row is uv y = 1
+  vec2 g = vec2(480.0 / 1536.0, 480.0 / 1024.0);
+  vec2 a = (cell * 512.0 + 16.0) / vec2(1536.0, 1024.0) + fract(w) * g;
+  return textureGrad(tex, a, dFdx(w) * g, dFdy(w) * g);
+}`;
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\n' + atlas)
+      .replace('#include <map_fragment>', `
+#ifdef USE_MAP
+  int mi = int(vMat + 0.5);
+  vec4 tx = atlasSample(map, vMapUv, mi);
+  float detail = clamp(dot(tx.rgb, vec3(0.2126, 0.7152, 0.0722)) / ATLAS_MEAN[mi], 0.3, 1.9);
+  float strength = mi == 5 ? 0.0 : mi == 0 ? 0.5 : 0.9;
+  diffuseColor.rgb *= mix(1.0, detail, strength);
+#endif`)
+      .replace('vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;', `
+  int mn = int(vMat + 0.5);
+  vec3 mapN = atlasSample(normalMap, vNormalMapUv, mn).xyz * 2.0 - 1.0;
+  mapN.xy *= mn == 5 ? 0.0 : mn == 0 ? 0.55 : 1.0;`);
+  };
+  return m;
+}
+
 // ---------------------------------------------------------------- materials
 export const MAX_LIT = 96;
 const glassUniforms = { uLit: { value: new Array<number>(MAX_LIT).fill(0) }, uGlow: { value: 0 } };
 
 function makeGlassMaterial(): THREE.MeshStandardMaterial {
-  const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.2, metalness: 0.15, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.38, metalness: 0.1, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, glassUniforms);
     sh.vertexShader = sh.vertexShader
@@ -60,7 +111,7 @@ function makeGlassMaterial(): THREE.MeshStandardMaterial {
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvLamp = aSeed < 0.0 ? 1.0 : 0.0; vLit = aSeed < 0.0 ? 1.0 : step(aSeed, uLit[int(aBld + 0.5)]);');
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying float vLit; varying float vLamp; uniform float uGlow;')
-      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.62, 0.30) * vLit * uGlow * (0.75 + vLamp * 2.8);');
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.62, 0.30) * vLit * uGlow * (0.6 + vLamp * 2.8);');
   };
   return m;
 }
@@ -102,7 +153,8 @@ export function Buildings() {
   const plaster = useMemo(plasterTexture, []);
   const atlas = useMemo(() => signAtlas(built.cells), [built]);
   useEffect(() => () => atlas.dispose(), [atlas]);
-  const solidMat = useMemo(() => new THREE.MeshStandardMaterial({ vertexColors: true, map: plaster, roughness: 0.92, metalness: 0 }), [plaster]);
+  const solidMat = useMemo(() => makeSurfaceMaterial(), []);
+  void plaster;
   const glassMat = useMemo(makeGlassMaterial, []);
   const signMat = useMemo(() => new THREE.MeshStandardMaterial({ map: atlas, emissiveMap: atlas, emissive: new THREE.Color('#ffffff'), emissiveIntensity: 0, roughness: 0.6 }), [atlas]);
 
@@ -113,7 +165,7 @@ export function Buildings() {
     const h = hourOf(sim.world.time);
     lit[SLOT_BACKDROP] = h >= 17 ? 0.62 * Math.min(1, (h - 17) / 2.5) * (h > 23 ? 0.35 : 1) : h < 1 ? 0.25 : h < 5 ? 0.06 : h < 7 ? 0.3 : 0.05;
     lit[SLOT_CHURCH] = 1;
-    const glow = THREE.MathUtils.smoothstep(atmo.night + (1 - atmo.sunGlow) * 0.25, 0.1, 0.7);
+    const glow = THREE.MathUtils.smoothstep(atmo.night + (1 - atmo.sunGlow) * 0.12 * (1 - atmo.sunGlow), 0.18, 0.75);
     glassUniforms.uGlow.value = glow;
     signMat.emissiveIntensity = glow * 0.55;
     const wet = wetness();

@@ -42,36 +42,36 @@ const B = (
 
 export const BUILDING_SPECS: BSpec[] = [
   // STATION
-  B('b_station', 'ルミエール・ベイ駅', 'station', 'station', -28, -46, 16, 10, 6, [-20, -30], [5, 24]),
-  B('b_conv', 'ベイマート 駅前店', 'convenience', 'station', -50, -42, 8, 7, 4, [-40, -30], [0, 24]),
-  B('b_eatery', '駅前食堂 みなと', 'restaurant', 'station', -4, -42, 10, 8, 5, [10, -30], [7, 21]),
+  B('b_station', 'ルミエール・ベイ駅', 'station', 'station', -28, -46, 16, 10, 8.5, [-20, -30], [5, 24]),
+  B('b_conv', 'ベイマート 駅前店', 'convenience', 'station', -50, -42, 8, 7, 4.5, [-40, -30], [0, 24]),
+  B('b_eatery', '駅前食堂 みなと', 'restaurant', 'station', -4, -42, 10, 8, 7, [10, -30], [7, 21]),
   B('b_plaza', '駅前広場', 'plaza', 'station', -31, -35, 14, 5, 0.2, [-20, -30], null),
   // RESIDENTIAL
-  B('b_house1', '佐藤邸', 'house', 'residential', 22, -48, 10, 9, 5, [10, -30]),
-  B('b_house2', '田中邸', 'house', 'residential', 46, -52, 10, 9, 5, [35, -30]),
-  B('b_house3', '鈴木邸', 'house', 'residential', 72, -44, 10, 9, 5, [60, -30]),
-  B('b_house4', '高橋邸', 'house', 'residential', 22, -14, 10, 9, 5, [10, 0]),
-  B('b_apt1', 'リバーサイド荘', 'apartment', 'residential', 48, -14, 12, 10, 12, [35, 0]),
-  B('b_apt2', 'ハイツ・ミドリ', 'apartment', 'residential', 72, -14, 12, 10, 12, [60, 0]),
+  B('b_house1', '佐藤邸', 'house', 'residential', 22, -48, 10, 9, 7.6, [10, -30]),
+  B('b_house2', '田中邸', 'house', 'residential', 46, -52, 10, 9, 7.6, [35, -30]),
+  B('b_house3', '鈴木邸', 'house', 'residential', 72, -44, 10, 9, 7.6, [60, -30]),
+  B('b_house4', '高橋邸', 'house', 'residential', 22, -14, 10, 9, 7.6, [10, 0]),
+  B('b_apt1', 'リバーサイド荘', 'apartment', 'residential', 48, -14, 12, 10, 13.5, [35, 0]),
+  B('b_apt2', 'ハイツ・ミドリ', 'apartment', 'residential', 72, -14, 12, 10, 13.5, [60, 0]),
   B('b_park', 'なかよし公園', 'park', 'residential', 46, -37, 16, 8, 0.2, [35, -30], null),
   // OLD TOWN
-  B('b_cafe', 'カフェ・ルナ', 'cafe', 'oldtown', -50, -9, 9, 7, 4, [-40, 0], [8, 19]),
-  B('b_books', '渡辺古書店', 'bookstore', 'oldtown', -30, -9, 9, 7, 4, [-20, 0], [10, 18]),
-  B('b_izakaya', '小料理 はる', 'restaurant', 'oldtown', -68, -9, 9, 7, 4, [-60, 0], [11, 22]),
-  B('b_shop', '鈴木商店', 'shop', 'oldtown', -50, 9, 10, 7, 4, [-40, 0], [9, 18]),
-  B('b_oldhouse', '渡辺邸', 'house', 'oldtown', -30, 9, 9, 7, 4, [-20, 0]),
-  B('b_apt3', 'コーポ旧市街', 'apartment', 'oldtown', -69, 9, 10, 9, 10, [-60, 0]),
+  B('b_cafe', 'カフェ・ルナ', 'cafe', 'oldtown', -50, -9, 9, 7, 7.6, [-40, 0], [8, 19]),
+  B('b_books', '渡辺古書店', 'bookstore', 'oldtown', -30, -9, 9, 7, 7.6, [-20, 0], [10, 18]),
+  B('b_izakaya', '小料理 はる', 'restaurant', 'oldtown', -68, -9, 9, 7, 7, [-60, 0], [11, 22]),
+  B('b_shop', '鈴木商店', 'shop', 'oldtown', -50, 9, 10, 7, 10.6, [-40, 0], [9, 18]),
+  B('b_oldhouse', '渡辺邸', 'house', 'oldtown', -30, 9, 9, 7, 7.2, [-20, 0]),
+  B('b_apt3', 'コーポ旧市街', 'apartment', 'oldtown', -69, 9, 10, 9, 13, [-60, 0]),
   // HARBOR
-  B('b_fishery', 'ルミエール漁港', 'fishery', 'harbor', -66, 41, 12, 8, 4, [-60, 30], [4, 16]),
-  B('b_warehouse', '第二倉庫', 'warehouse', 'harbor', -48, 42, 12, 9, 6, [-40, 30], [7, 18]),
-  B('b_market', '朝市場', 'market', 'harbor', -30, 41, 12, 8, 4, [-20, 30], [5, 15]),
-  B('b_office', '港湾事務所', 'office', 'harbor', -72, 20, 10, 8, 5, [-60, 30], [8, 17]),
+  B('b_fishery', 'ルミエール漁港', 'fishery', 'harbor', -66, 41, 12, 8, 5, [-60, 30], [4, 16]),
+  B('b_warehouse', '第二倉庫', 'warehouse', 'harbor', -48, 42, 12, 9, 8, [-40, 30], [7, 18]),
+  B('b_market', '朝市場', 'market', 'harbor', -30, 41, 12, 8, 5.5, [-20, 30], [5, 15]),
+  B('b_office', '港湾事務所', 'office', 'harbor', -72, 20, 10, 8, 8.6, [-60, 30], [8, 17]),
   B('b_promenade', '海沿いの遊歩道', 'plaza', 'harbor', -42, 47, 36, 3, 0.2, [-40, 30], null),
   // SEASIDE
-  B('b_seacafe', 'カフェ・マレ', 'cafe', 'seaside', 22, 40, 10, 8, 4, [10, 30], [9, 20]),
+  B('b_seacafe', 'カフェ・マレ', 'cafe', 'seaside', 22, 40, 10, 8, 7.6, [10, 30], [9, 20]),
   B('b_beach', 'ルミエール海岸', 'beach', 'seaside', 38, 49, 40, 6, 0.2, [35, 30], null),
-  B('b_lookout', '灯台の展望台', 'lookout', 'seaside', 67, 42, 8, 8, 9, [60, 30], null),
-  B('b_aquarium', 'ベイ水族館', 'tourist', 'seaside', 49, 38, 14, 8, 6, [35, 30], [9, 17]),
+  B('b_lookout', '灯台の展望台', 'lookout', 'seaside', 67, 42, 8, 8, 12, [60, 30], null),
+  B('b_aquarium', 'ベイ水族館', 'tourist', 'seaside', 49, 38, 14, 8, 6.5, [35, 30], [9, 17]),
 ];
 
 export const LOT_SPECS: Lot[] = [
@@ -240,6 +240,12 @@ export function seedRelationshipsFor(w: WorldState, c: Citizen, randomCount = 3)
     else if (o.homeId === c.homeId) mkRel(w, c, o, 'neighbor');
   }
   for (let i = 0; i < randomCount && others.length; i++) mkRel(w, c, pick(w, others), 'acquaintance');
+}
+
+/** Old saves keep their buildings: bring visual-only fields (height) up to date with the current specs. */
+export function migrateWorld(w: WorldState): WorldState {
+  for (const spec of BUILDING_SPECS) { const b = w.buildings[spec.id]; if (b && b.h !== spec.h) b.h = spec.h; }
+  return w;
 }
 
 /** Leave home early enough to walk to work (walking is human-speed, so long commutes start earlier). */

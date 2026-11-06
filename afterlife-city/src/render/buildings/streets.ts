@@ -5,6 +5,11 @@ import type { WorldState } from '../../sim/types';
 import type { Batch } from './batch';
 import { PAL } from './designs';
 import { clear } from './space';
+import { MAT } from './batch';
+
+/** Old town streets (and the station square) are cobbled; the rest is asphalt. */
+const cobbled = (x: number, z: number) => x < -15 && z < 25;
+const COBBLE = '#c2b39b';
 
 const ASPHALT = '#58534c', CURB = '#cdc2a8', PAINT = '#ece0b4';
 const HALF = 2.2, WALK = 1.2;
@@ -58,7 +63,9 @@ export function designStreet(B: Batch, w: WorldState): void {
 
   // ---- roads & sidewalks
   for (const n of nodes) {
-    B.block(n.x, 0.0, n.z, HALF * 2 + 0.4, 0.12, HALF * 2 + 0.4, col(ASPHALT));
+    B.mat = cobbled(n.x, n.z) ? MAT.cobble : MAT.flat;
+    B.block(n.x, 0.0, n.z, HALF * 2 + 0.4, 0.12, HALF * 2 + 0.4, col(cobbled(n.x, n.z) ? COBBLE : ASPHALT));
+    B.mat = MAT.stone;
     const has = (dx: number, dz: number) => n.links.some(l => Math.sign(w.nodes[l].x - n.x) === dx && Math.sign(w.nodes[l].z - n.z) === dz);
     // pavement corners only where two roads meet at a right angle
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) if (has(sx, 0) && has(0, sz)) B.block(n.x + sx * (HALF + WALK / 2 + 0.1), 0, n.z + sz * (HALF + WALK / 2 + 0.1), WALK + 0.2, 0.16, WALK + 0.2, col(CURB));
@@ -71,18 +78,23 @@ export function designStreet(B: Batch, w: WorldState): void {
     const len = Math.hypot(m.x - n.x, m.z - n.z);
     const cx = (n.x + m.x) / 2, cz = (n.z + m.z) / 2;
     const inner = len - (HALF * 2);                 // between intersections
+    const cob = cobbled(cx, cz);
+    const road = col(cob ? COBBLE : ASPHALT);
     if (horiz) {
-      B.block(cx, 0, cz, len, 0.12, HALF * 2, col(ASPHALT));
-      for (const sz of [-1, 1]) B.block(cx, 0, cz + sz * (HALF + WALK / 2), inner, 0.16, WALK, col(CURB));
-      const dashes = Math.floor(inner / 4.5);
+      B.mat = cob ? MAT.cobble : MAT.flat; B.block(cx, 0, cz, len, 0.12, HALF * 2, road);
+      B.mat = MAT.stone; for (const sz of [-1, 1]) B.block(cx, 0, cz + sz * (HALF + WALK / 2), inner, 0.16, WALK, col(CURB));
+      B.mat = MAT.flat;
+      const dashes = cob ? 0 : Math.floor(inner / 4.5);
       for (let i = 0; i < dashes; i++) B.block(cx - inner / 2 + (i + 0.5) * (inner / dashes), 0.12, cz, 1.6, 0.01, 0.16, col(PAINT));
     } else {
-      B.block(cx, 0, cz, HALF * 2, 0.12, len, col(ASPHALT));
-      for (const sx of [-1, 1]) B.block(cx + sx * (HALF + WALK / 2), 0, cz, WALK, 0.16, inner, col(CURB));
-      const dashes = Math.floor(inner / 4.5);
+      B.mat = cob ? MAT.cobble : MAT.flat; B.block(cx, 0, cz, HALF * 2, 0.12, len, road);
+      B.mat = MAT.stone; for (const sx of [-1, 1]) B.block(cx + sx * (HALF + WALK / 2), 0, cz, WALK, 0.16, inner, col(CURB));
+      B.mat = MAT.flat;
+      const dashes = cob ? 0 : Math.floor(inner / 4.5);
       for (let i = 0; i < dashes; i++) B.block(cx, 0.12, cz - inner / 2 + (i + 0.5) * (inner / dashes), 0.16, 0.01, 1.6, col(PAINT));
     }
     // zebra crossings near both ends
+    B.mat = MAT.flat;
     for (const [e, other] of [[n, m], [m, n]] as const) {
       const dx = Math.sign(other.x - e.x), dz = Math.sign(other.z - e.z);
       // centred on the line pedestrians actually cross on (sidewalk centre, 2.5–3.1 from the node)
@@ -105,6 +117,7 @@ export function designStreet(B: Batch, w: WorldState): void {
   const corner = HALF + WALK + 0.45;
   for (const n of nodes) place(B, w, 0.25, [[n.x + corner, n.z + corner], [n.x - corner, n.z + corner], [n.x + corner, n.z - corner], [n.x - corner, n.z - corner]], (x, z) => lampPost(B, x, z), 'lamp');
 
+  B.mat = -1;
   // ---- per-building furniture (placed at each door anchor, mirrored into world space)
   const doors = B.anchors.filter(a => a.kind === 'door');
   for (const d of doors) {
