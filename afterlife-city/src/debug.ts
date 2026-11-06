@@ -2,6 +2,7 @@
 import { sim, useGame } from './store/game';
 import { registry } from './render/registry';
 import { renderPos } from './render/citizens/Citizens';
+import { POSTCARDS } from './render/lookdev';
 
 export function installDebug(): void {
   const hash = () => {
@@ -13,6 +14,8 @@ export function installDebug(): void {
   };
   (window as unknown as Record<string, unknown>).__afterlife = {
     sim, registry, hash,
+    postcards: POSTCARDS,
+    setSpeed(s: 0 | 1 | 2 | 5 | 10) { useGame.getState().setSpeed(s); },
     /** rendered (interpolated) positions of visible residents */
     positions: () => [...renderPos.entries()].filter(([, r]) => r.visible).map(([id, r]) => ({ id, x: r.x + r.ox, z: r.z + r.oz })),
     counts: () => ({

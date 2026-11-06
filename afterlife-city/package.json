@@ -13,7 +13,8 @@
     "server": "node server/index.mjs",
     "test:e2e": "node tests/e2e/smoke.mjs",
     "test:e2e:a": "E2E_PART=a node tests/e2e/smoke.mjs",
-    "test:e2e:b": "E2E_PART=b node tests/e2e/smoke.mjs"
+    "test:e2e:b": "E2E_PART=b node tests/e2e/smoke.mjs",
+    "lookdev": "node tests/e2e/lookdev.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",
