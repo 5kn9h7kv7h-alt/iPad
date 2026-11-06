@@ -118,7 +118,7 @@ export function computeAtmosphere(a: Atmosphere, hour: number, season: Season, w
 
   // fog follows the horizon so distance dissolves into the sky
   a.fogColor.copy(a.skyHorizon);
-  a.fogDensity = 0.0017 + wx.fog * 0.015 + wx.grey * 0.0018 + golden * 0.0003;
+  a.fogDensity = 0.0012 + wx.fog * 0.015 + wx.grey * 0.0023 + golden * 0.0002;
 
   // exposure: slightly lower at night, slightly warmer-brighter at golden hour
   a.exposure = 0.9 + 0.18 * dayAmt + golden * 0.2;

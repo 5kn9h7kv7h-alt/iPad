@@ -5,7 +5,7 @@ import { sim } from '../../store/game';
 import type { Season } from '../../sim/types';
 import { coastZ, fbm, heightAt, slopeAt, TOWN } from './terrainHeight';
 
-const GRASS: Record<Season, string> = { spring: '#8a9a5b', summer: '#738a4b', autumn: '#9a8a52', winter: '#aeac98' };
+const GRASS: Record<Season, string> = { spring: '#76955f', summer: '#64854c', autumn: '#938a56', winter: '#aeac98' };
 
 function terrainGeometry(segX: number, segZ: number): THREE.BufferGeometry {
   const W = 560, D = 440, cz = -70;

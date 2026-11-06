@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
@@ -60,15 +60,35 @@ function loadTex(url: string, srgb: boolean): THREE.Texture {
  * atlas (plaster, roof tiles, stone, wood, cobblestone, flat). Textures only add *detail* (their luminance
  * relative to the slot mean), so the art-directed vertex colours stay in charge of the palette.
  */
+// Night: street lamps wash the lower facades with warm light. A top-down map of lamp light (rebuilt when the
+// city changes) is sampled at each fragment's position and faded with height; walls take it more than roofs.
+const WASH_RECT = { x0: -110, z0: -95, w: 220, d: 170 };
+const washUniforms = { uLampMap: { value: null as THREE.Texture | null }, uLampRect: { value: new THREE.Vector4(WASH_RECT.x0, WASH_RECT.z0, 1 / WASH_RECT.w, 1 / WASH_RECT.d) }, uWash: { value: 0 } };
+function lampMap(lamps: { x: number; z: number }[]): THREE.CanvasTexture {
+  const W = 512, H = Math.round(512 * WASH_RECT.d / WASH_RECT.w), k = W / WASH_RECT.w;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#000'; g.fillRect(0, 0, W, H); g.globalCompositeOperation = 'lighter';
+  for (const l of lamps) {
+    const x = (l.x - WASH_RECT.x0) * k, y = (l.z - WASH_RECT.z0) * k, r = 12 * k;
+    const grad = g.createRadialGradient(x, y, 0, x, y, r);
+    grad.addColorStop(0, 'rgba(255,255,255,1)'); grad.addColorStop(0.4, 'rgba(255,255,255,0.45)'); grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grad; g.fillRect(x - r, y - r, 2 * r, 2 * r);
+  }
+  const t = new THREE.CanvasTexture(c); t.flipY = false; t.colorSpace = THREE.NoColorSpace;
+  return t;
+}
+
 function makeSurfaceMaterial(): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({
     vertexColors: true, roughness: 0.9, metalness: 0,
     map: loadTex('assets/textures/atlas_diff.jpg', true), normalMap: loadTex('assets/textures/atlas_nrm.jpg', false),
   });
   m.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, washUniforms);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aMat; varying float vMat;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvMat = aMat;');
+      .replace('#include <common>', '#include <common>\nattribute float aMat; varying float vMat; varying vec3 vWP; varying float vWall;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvMat = aMat; vWP = (modelMatrix * vec4(transformed, 1.0)).xyz; vWall = 1.0 - abs(normalize(mat3(modelMatrix) * objectNormal).y);');
     const atlas = `
 varying float vMat;
 const float ATLAS_MEAN[6] = float[6](${ATLAS_MEAN.map(v => v.toFixed(4)).join(', ')});
@@ -81,7 +101,12 @@ vec4 atlasSample(sampler2D tex, vec2 uv, int mi) {
   return textureGrad(tex, a, dFdx(w) * g, dFdy(w) * g);
 }`;
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\n' + atlas)
+      .replace('#include <common>', '#include <common>\n' + atlas + '\nuniform sampler2D uLampMap; uniform vec4 uLampRect; uniform float uWash; varying vec3 vWP; varying float vWall;')
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+  if (uWash > 0.001) {
+    float lamp = texture2D(uLampMap, (vWP.xz - uLampRect.xy) * uLampRect.zw).r * (1.0 - smoothstep(0.4, 11.0, vWP.y)) * mix(0.2, 1.0, vWall);
+    totalEmissiveRadiance += diffuseColor.rgb * uWash * (vec3(1.0, 0.62, 0.32) * min(lamp, 1.4) * 1.5 + vec3(0.42, 0.38, 0.4) * 0.1);
+  }`)
       .replace('#include <map_fragment>', `
 #ifdef USE_MAP
   int mi = int(vMat + 0.5);
@@ -154,6 +179,7 @@ export function Buildings() {
   const atlas = useMemo(() => signAtlas(built.cells), [built]);
   useEffect(() => () => atlas.dispose(), [atlas]);
   const solidMat = useMemo(() => makeSurfaceMaterial(), []);
+  const washSeen = useRef(-1);
   void plaster;
   const glassMat = useMemo(makeGlassMaterial, []);
   const signMat = useMemo(() => new THREE.MeshStandardMaterial({ map: atlas, emissiveMap: atlas, emissive: new THREE.Color('#ffffff'), emissiveIntensity: 0, roughness: 0.6 }), [atlas]);
@@ -168,6 +194,13 @@ export function Buildings() {
     const glow = THREE.MathUtils.smoothstep(atmo.night + (1 - atmo.sunGlow) * 0.12 * (1 - atmo.sunGlow), 0.18, 0.75);
     glassUniforms.uGlow.value = glow;
     signMat.emissiveIntensity = glow * 0.55;
+    if (washSeen.current !== cityData.version) {
+      washSeen.current = cityData.version;
+      washUniforms.uLampMap.value?.dispose();
+      washUniforms.uLampMap.value = lampMap(cityData.anchors.filter(a => a.kind === 'lamp'));
+    }
+    const on = sim.world.env.lightsOn ? Math.min(1, 0.15 + atmo.night * 0.9) : 0;
+    washUniforms.uWash.value += (on - washUniforms.uWash.value) * 0.05;
     const wet = wetness();
     solidMat.roughness = 0.92 - wet * 0.5; solidMat.color.setScalar(1 - wet * 0.2);
   });
