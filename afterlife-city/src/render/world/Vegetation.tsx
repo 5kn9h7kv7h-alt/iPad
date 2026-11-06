@@ -9,26 +9,55 @@ import { backdropBoxes, CHURCH } from './backdrop';
 import { inBuilding, onStreet } from '../buildings/space';
 
 // ---------------------------------------------------------------- crowns (3 species) + trunks: 4 instanced draws, wind-swayed in the vertex shader
+// Crowns are soft volumes rather than facets: lumpy blobs whose normals bend towards the crown's centre, and a
+// height term (aH) that darkens the underside like ambient occlusion.
+const CROWN_SHAPE = { pine: { c: 3.4, lo: 1.1, hi: 5.7 }, round: { c: 3.2, lo: 1.3, hi: 5.2 }, cypress: { c: 3.6, lo: 0.7, hi: 6.6 } };
 function crownGeo(kind: 'pine' | 'round' | 'cypress', detail: 0 | 1 = 1): THREE.BufferGeometry {
-  const parts: THREE.BufferGeometry[] = [];
-  if (kind === 'pine') for (let i = 0; i < 3; i++) { const g = new THREE.ConeGeometry(1.5 - i * 0.35, 2.2, 7); g.translate(0, 2.2 + i * 1.15, 0); parts.push(g.toNonIndexed()); }
-  else if (kind === 'round') for (const [x, y, z, r] of [[0, 3.1, 0, 1.7], [0.9, 2.7, 0.3, 1.2], [-0.8, 2.8, -0.4, 1.25], [0.1, 4.0, -0.2, 1.1]]) { const g = new THREE.IcosahedronGeometry(r, detail); g.translate(x, y, z); parts.push(g); }
-  else { const g = new THREE.SphereGeometry(0.95, 8, 8); g.scale(1, 3.1, 1); g.translate(0, 3.6, 0); parts.push(g.toNonIndexed()); }
-  let total = 0; for (const p of parts) total += p.attributes.position.count;
-  const pos = new Float32Array(total * 3); let o = 0;
-  for (const p of parts) { pos.set(p.attributes.position.array as Float32Array, o); o += p.attributes.position.count * 3; }
-  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.computeVertexNormals();
+  const parts: { g: THREE.BufferGeometry; c: THREE.Vector3; r: number }[] = [];
+  if (kind === 'pine') for (let i = 0; i < 3; i++) { const g = new THREE.ConeGeometry(1.5 - i * 0.35, 2.2, 9); g.translate(0, 2.2 + i * 1.15, 0); parts.push({ g, c: new THREE.Vector3(0, 2.2 + i * 1.15, 0), r: 0 }); }
+  else if (kind === 'round') for (const [x, y, z, r] of [[0, 3.1, 0, 1.7], [0.9, 2.7, 0.3, 1.2], [-0.8, 2.8, -0.4, 1.25], [0.1, 4.0, -0.2, 1.1], [-0.2, 3.3, 0.9, 1.05]]) { const g = new THREE.IcosahedronGeometry(r, detail); g.translate(x, y, z); parts.push({ g, c: new THREE.Vector3(x, y, z), r }); }
+  else { const g = new THREE.SphereGeometry(0.95, 10, 9); g.scale(1, 3.1, 1); g.translate(0, 3.6, 0); parts.push({ g, c: new THREE.Vector3(0, 3.6, 0), r: 0.5 }); }
+  const S = CROWN_SHAPE[kind], centre = new THREE.Vector3(0, S.c, 0);
+  const flat = parts.map(p => ({ ...p, g: p.g.index ? p.g.toNonIndexed() : p.g }));
+  let total = 0; for (const p of flat) total += p.g.attributes.position.count;
+  const pos = new Float32Array(total * 3), nor = new Float32Array(total * 3), hgt = new Float32Array(total);
+  const v = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3(), n0 = new THREE.Vector3();
+  let o = 0;
+  for (const p of flat) {
+    const P = p.g.attributes.position, N = p.g.attributes.normal;
+    for (let i = 0; i < P.count; i++, o++) {
+      v.fromBufferAttribute(P, i);
+      if (p.r > 0) { // lumpy surface; duplicated vertices hash alike, so the mesh stays closed
+        const h = Math.sin(Math.round(v.x * 40) * 12.9898 + Math.round(v.y * 40) * 78.233 + Math.round(v.z * 40) * 37.719) * 43758.5453;
+        v.addScaledVector(a.copy(v).sub(p.c).normalize(), ((h - Math.floor(h)) - 0.5) * 0.22 * p.r);
+      }
+      n0.fromBufferAttribute(N, i);
+      if (p.r > 0) a.copy(v).sub(p.c).normalize(); else a.copy(n0);
+      b.copy(v).sub(centre).normalize();
+      a.lerp(b, kind === 'pine' ? 0.35 : 0.5).normalize();
+      pos.set([v.x, v.y, v.z], o * 3); nor.set([a.x, a.y, a.z], o * 3);
+      hgt[o] = Math.min(1, Math.max(0, (v.y - S.lo) / (S.hi - S.lo)));
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  g.setAttribute('aH', new THREE.BufferAttribute(hgt, 1));
   return g;
 }
 
 const swayUniforms = { uTime: { value: 0 }, uWind: { value: 0.3 } };
 function swayMaterial(): THREE.MeshStandardMaterial {
-  const m = new THREE.MeshStandardMaterial({ roughness: 1, flatShading: true });
+  const m = new THREE.MeshStandardMaterial({ roughness: 0.95 });
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, swayUniforms);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vH;')
+      .replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb *= 0.62 + 0.5 * vH;');
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nuniform float uTime; uniform float uWind;')
+      .replace('#include <common>', '#include <common>\nuniform float uTime; uniform float uWind; attribute float aH; varying float vH;')
       .replace('#include <begin_vertex>', `#include <begin_vertex>
+  vH = aH;
 #ifdef USE_INSTANCING
   float ph = instanceMatrix[3].x * 0.13 + instanceMatrix[3].z * 0.17;
 #else
@@ -186,7 +215,7 @@ export function Vegetation({ scale, bushes, detail }: { scale: number; bushes: b
       {[0, 1].map(k => <instancedMesh key={'far' + k} ref={farRefs[k]} args={[farGeos[k], farMat, Math.max(1, farGroups[k].length)]} />)}
       <instancedMesh ref={trunk} args={[trunkGeo, undefined, Math.max(1, trees.length)]} castShadow><meshStandardMaterial color="#6b4a2e" roughness={1} /></instancedMesh>
       <instancedMesh ref={bush} args={[undefined, undefined, Math.max(1, bushList.length)]}>
-        <icosahedronGeometry args={[0.7, 1]} /><meshStandardMaterial roughness={1} flatShading />
+        <icosahedronGeometry args={[0.7, 1]} /><meshStandardMaterial roughness={1} />
       </instancedMesh>
     </group>
   );
