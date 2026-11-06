@@ -32,7 +32,7 @@ export interface Atmosphere {
 }
 
 const C = (h: string) => new THREE.Color(h);
-const NIGHT_TOP = C('#0a1429'), NIGHT_HOR = C('#1d2b4a');
+const NIGHT_TOP = C('#122150'), NIGHT_HOR = C('#2b3d66');
 const DAY_TOP = C('#6b9fc4'), DAY_HOR = C('#d3e2e0');
 const MORN_HOR = C('#f1e2b8');        // soft pale yellow
 const EVE_HOR = C('#f2924a'), EVE_TOP = C('#5f74a6'), EVE_MID = C('#e6958a'); // warm golden hour
@@ -40,7 +40,7 @@ const DUSK_HOR = C('#c98a7a');        // after the sun is gone: dusty rose into 
 const OVC_TOP = C('#8e9aa1'), OVC_HOR = C('#b7bcb8');
 const SUN_HIGH = C('#fff3dc'), SUN_MORN = C('#ffe7b0'), SUN_EVE = C('#ffad5c');
 const MOON = C('#8fa6d8');
-const SEA_DEEP_DAY = C('#2b6279'), SEA_SHALLOW_DAY = C('#5e9a9c'), SEA_NIGHT = C('#0a1a2e');
+const SEA_DEEP_DAY = C('#2b6279'), SEA_SHALLOW_DAY = C('#5e9a9c'), SEA_NIGHT = C('#0e2140');
 
 const sstep = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const MAX_ELEV: Record<Season, number> = { spring: 0.78, summer: 0.93, autumn: 0.68, winter: 0.5 };
@@ -108,7 +108,7 @@ export function computeAtmosphere(a: Atmosphere, hour: number, season: Season, w
   a.sunColor.copy(SUN_HIGH).lerp(evening ? SUN_EVE : SUN_MORN, low);
   const clear = 1 - wx.grey * 0.65;
   a.sunIntensity = (2.5 + golden * 0.7) * sstep(-0.08, 0.14, e) * (0.78 + 0.22 * sstep(0.04, 0.5, e)) * clear;
-  a.moonIntensity = 0.62 * a.night * (1 - wx.grey * 0.6);
+  a.moonIntensity = 0.85 * a.night * (1 - wx.grey * 0.6);
   a.sunGlow = sstep(-0.05, 0.1, e) * (1 - wx.grey * 0.7);
 
   // ambient: sky-coloured above, warm olive-sand bounce below
@@ -121,7 +121,7 @@ export function computeAtmosphere(a: Atmosphere, hour: number, season: Season, w
   a.fogDensity = 0.0017 + wx.fog * 0.015 + wx.grey * 0.0018 + golden * 0.0003;
 
   // exposure: slightly lower at night, slightly warmer-brighter at golden hour
-  a.exposure = 0.78 + 0.3 * dayAmt + golden * 0.2;
+  a.exposure = 0.9 + 0.18 * dayAmt + golden * 0.2;
 
   a.cover = wx.cover;
   a.cloudLit.copy(C('#f6f0e2')).lerp(evening ? C('#ffb066') : C('#fff0c8'), golden).lerp(C('#3b4a6b'), a.night * 0.85);

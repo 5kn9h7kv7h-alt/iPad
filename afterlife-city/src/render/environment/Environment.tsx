@@ -147,9 +147,11 @@ void main() {
   w.y += off.y; vWorld = w.xyz; vN = normalize(vec3(-grad.x, 1.0, -grad.z));
   gl_Position = projectionMatrix * viewMatrix * w;
 }`;
+const SEA_LAMPS = 24;
 const SEA_FRAG = /* glsl */ `
 uniform vec3 uDeep, uShallow, uTop, uHorizon, uSunDir, uSunColor, uFogColor;
-uniform float uTime, uFogDensity, uSunGlow;
+uniform float uTime, uFogDensity, uSunGlow, uLampsOn;
+uniform vec4 uLamps[${SEA_LAMPS}]; // waterfront lights (xyz, strength): their reflections streak towards the viewer
 varying vec3 vWorld; varying vec3 vN;
 void main() {
   vec3 V = normalize(cameraPosition - vWorld);
@@ -167,6 +169,19 @@ void main() {
   float shore = 1.0 - smoothstep(52.0, 82.0, vWorld.z);
   vec3 body = mix(uDeep, uShallow, shore * 0.8);
   vec3 col = mix(body, sky, fres) + sun;
+  if (uLampsOn > 0.01) {
+    vec3 H = normalize(vec3(V.z, 0.0, -V.x));                 // across the line of sight, on the water
+    vec3 lamps = vec3(0.0);
+    for (int i = 0; i < ${SEA_LAMPS}; i++) {
+      vec4 L = uLamps[i];
+      if (L.w <= 0.0) continue;
+      vec3 D = normalize(L.xyz - vWorld), e = Rg - D;
+      float dh = dot(e, H), dv = length(e - H * dh);
+      float d2 = dot(L.xz - vWorld.xz, L.xz - vWorld.xz);
+      lamps += L.w * exp(-dh * dh * 9000.0 - dv * dv * 70.0) / (1.0 + d2 * 0.0025);
+    }
+    col += vec3(1.0, 0.6, 0.27) * lamps * uLampsOn * 0.55;
+  }
   float foam = smoothstep(0.55, 0.0, vWorld.z - 52.0 - sin(vWorld.x * 0.4 + uTime * 0.8) * 0.8 - 0.4);
   col = mix(col, vec3(0.93, 0.92, 0.86) * (0.35 + 0.65 * uSunGlow), foam * 0.45 * step(52.0, vWorld.z) * (1.0 - step(54.0, vWorld.z)));
   float dist = length(cameraPosition - vWorld);
@@ -184,10 +199,31 @@ export function Sea({ seg }: { seg: [number, number] }) {
       uTime: { value: 0 }, uAmp: { value: 0.5 }, uFogDensity: { value: 0.003 }, uSunGlow: { value: 1 },
       uDeep: { value: new THREE.Color() }, uShallow: { value: new THREE.Color() }, uTop: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() },
       uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunColor: { value: new THREE.Color() }, uFogColor: { value: new THREE.Color() },
+      uLamps: { value: Array.from({ length: SEA_LAMPS }, () => new THREE.Vector4()) }, uLampsOn: { value: 0 },
     },
   }), []);
+  const seen = useRef(-1);
   useFrame(({ clock }) => {
     const u = mat.uniforms;
+    if (seen.current !== cityData.version) {
+      seen.current = cityData.version;
+      // the lamps nearest the water, plus the lighthouse lantern
+      const front = cityData.anchors.filter(a => a.kind === 'lamp' && a.z > 34).sort((a, b) => a.x - b.x);
+      const step = Math.max(1, front.length / (SEA_LAMPS - 1)), near = [] as typeof front;
+      for (let k = 0; k < SEA_LAMPS - 1 && Math.floor(k * step) < front.length; k++) near.push(front[Math.floor(k * step)]); // spread along the shore
+      const list = near.map(a => new THREE.Vector4(a.x, 3.8, a.z, 1));
+      // lit windows of the buildings facing the water (two points each, across the facade)
+      for (const b of Object.values(sim.world.buildings)) {
+        if (list.length >= SEA_LAMPS - 3) break;
+        if (b.status === 'demolished' || ['park', 'plaza', 'beach', 'lookout'].includes(b.kind) || b.z + b.d / 2 < 34) continue;
+        for (const dx of [-b.w / 4, b.w / 4]) list.push(new THREE.Vector4(b.x + dx, b.h * 0.45, b.z + b.d / 2, 0.9));
+      }
+      const lh = sim.world.buildings.b_lookout;
+      if (lh && lh.status !== 'demolished') list.push(new THREE.Vector4(lh.x, lh.h + 1.4, lh.z, 2.2));
+      (u.uLamps.value as THREE.Vector4[]).forEach((v, i) => v.copy(list[i] ?? new THREE.Vector4(0, 0, 0, 0)));
+    }
+    const on = sim.world.env.lightsOn ? Math.min(1, 0.15 + atmo.night * 0.9) : 0;
+    u.uLampsOn.value += (on - u.uLampsOn.value) * 0.05;
     u.uTime.value = clock.elapsedTime; u.uAmp.value = 0.25 + sim.world.env.sea * 1.1;
     u.uDeep.value.copy(atmo.seaDeep); u.uShallow.value.copy(atmo.seaShallow);
     u.uTop.value.copy(atmo.skyTop); u.uHorizon.value.copy(atmo.skyHorizon);
