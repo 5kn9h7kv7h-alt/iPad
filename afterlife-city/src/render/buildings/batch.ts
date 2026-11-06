@@ -1,0 +1,202 @@
+// Geometry batching for the whole town: every building is written into three shared buffers
+// (solid walls/roofs, glass, signs) so 26 buildings cost ~3 draw calls. Pure data — no React, no sim writes.
+import * as THREE from 'three';
+
+interface Buf { pos: number[]; nor: number[]; col: number[]; uv: number[]; seed: number[]; shop: number[]; bld: number[]; mat: number[] }
+const newBuf = (): Buf => ({ pos: [], nor: [], col: [], uv: [], seed: [], shop: [], bld: [], mat: [] });
+
+/** Surface materials (slots of the texture atlas). */
+export const MAT = { plaster: 0, roof: 1, stone: 2, wood: 3, cobble: 4, flat: 5 } as const;
+const STONE = new Set(['#a9a597', '#a59a88', '#d8c9ad', '#cdc2a8', '#9d9283', '#c9bba3']);
+const WOOD = new Set(['#7a5a3c', '#4a3a2c', '#7b6a58', '#5a4b3c', '#8a6a48', '#6b4a2e', '#5b4636']);
+/** Pick a material from what is being drawn when the design did not say. */
+function autoMat(shape: Shape, color: string | THREE.Color, scale: [number, number, number]): number {
+  if (shape === 'gable' || shape === 'hip') return MAT.roof;
+  if (shape === 'dome' || shape === 'plane') return MAT.flat;
+  const hex = typeof color === 'string' ? color.toLowerCase() : '#' + color.getHexString();
+  if (STONE.has(hex)) return MAT.stone;
+  if (WOOD.has(hex)) return MAT.wood;
+  if (Math.max(scale[0], scale[1], scale[2]) < 0.9) return MAT.flat;
+  return MAT.plaster;
+}
+
+const unit = (g: THREE.BufferGeometry) => (g.index ? g.toNonIndexed() : g);
+const BOX = unit(new THREE.BoxGeometry(1, 1, 1));
+const PLANE = unit(new THREE.PlaneGeometry(1, 1));
+const CYL = (seg: number) => unit(new THREE.CylinderGeometry(1, 1, 1, seg));
+const CYL12 = CYL(12), CYL8 = CYL(8);
+const HIP = (() => { const g = new THREE.ConeGeometry(Math.SQRT1_2, 1, 4); g.rotateY(Math.PI / 4); g.translate(0, 0.5, 0); return unit(g); })();
+const DOME = (() => { const g = new THREE.SphereGeometry(1, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2); return unit(g); })();
+/** Triangular prism: width 1 (x), depth 1 (z), eave y=0, ridge y=1 along z. */
+const GABLE = (() => {
+  const v: number[] = [];
+  const tri = (a: number[], b: number[], c: number[]) => v.push(...a, ...b, ...c);
+  const L = -0.5, R = 0.5, F = 0.5, K = -0.5;
+  tri([L, 0, F], [R, 0, F], [0, 1, F]);              // front gable
+  tri([R, 0, K], [L, 0, K], [0, 1, K]);              // back gable
+  tri([L, 0, F], [0, 1, F], [0, 1, K]); tri([L, 0, F], [0, 1, K], [L, 0, K]); // left slope
+  tri([R, 0, F], [R, 0, K], [0, 1, K]); tri([R, 0, F], [0, 1, K], [0, 1, F]); // right slope
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+  g.computeVertexNormals();
+  const uv = new Float32Array((v.length / 3) * 2);
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  return g;
+})();
+
+export type Shape = 'box' | 'plane' | 'cyl' | 'cyl8' | 'hip' | 'dome' | 'gable';
+const GEO: Record<Shape, THREE.BufferGeometry> = { box: BOX, plane: PLANE, cyl: CYL12, cyl8: CYL8, hip: HIP, dome: DOME, gable: GABLE };
+
+export interface Cell { text: string; bg: string; fg: string }
+/** heading: world yaw the sitter faces, as angle t with facing vector (sin t, cos t) in (x, z). */
+export interface Anchor { buildingId: string; kind: 'door' | 'seat' | 'sign' | 'lamp'; x: number; z: number; heading?: number }
+export interface Range { id: string; start: number; end: number }
+/** World-space bounding box of one solid primitive (used by the overlap audit test). */
+export interface Part { id: string; tag: string; min: [number, number, number]; max: [number, number, number] }
+
+const _m = new THREE.Matrix4(), _n = new THREE.Matrix3(), _p = new THREE.Vector3(), _nv = new THREE.Vector3();
+const _q = new THREE.Quaternion(), _e = new THREE.Euler(), _s = new THREE.Vector3(), _c = new THREE.Color();
+
+export class Batch {
+  solid = newBuf(); glass = newBuf(); sign = newBuf();
+  cells: Cell[] = []; anchors: Anchor[] = []; ranges: Range[] = []; parts: Part[] = [];
+  /** label for the parts pushed next (e.g. 'lamp', 'bench'); empty = building body */
+  tag = '';
+  /** material for the parts pushed next; -1 = choose automatically */
+  mat = -1;
+  private curMat: number = MAT.plaster;
+  base = new THREE.Matrix4();
+  private rangeStart = 0; private rangeId = ''; private rangeIndex = 0;
+  private yaw = 0; private ox = 0; private oz = 0;
+
+  /** Start a building. `y` lifts it onto a hillside; `litSlot` makes its windows share one night-light slot. */
+  begin(id: string, x: number, z: number, yaw: number, y = 0, litSlot?: number): void {
+    this.rangeId = id; this.rangeStart = this.solid.pos.length / 9; this.rangeIndex = litSlot ?? this.ranges.length;
+    this.yaw = yaw; this.ox = x; this.oz = z; this.oy = y;
+    this.base.makeRotationY(yaw).setPosition(x, y, z);
+  }
+  private oy = 0;
+  end(): void { this.ranges.push({ id: this.rangeId, start: this.rangeStart, end: this.solid.pos.length / 9 }); }
+
+  /** local (x, z) -> world, for anchors */
+  toWorld(lx: number, lz: number): [number, number] {
+    const c = Math.cos(this.yaw), s = Math.sin(this.yaw);
+    return [this.ox + lx * c + lz * s, this.oz - lx * s + lz * c];
+  }
+
+  private push(buf: Buf, shape: Shape, m: THREE.Matrix4, color: THREE.Color, opts?: { cell?: number; seed?: number; shop?: number }): void {
+    const g = GEO[shape];
+    const P = g.attributes.position as THREE.BufferAttribute, N = g.attributes.normal as THREE.BufferAttribute, U = g.attributes.uv as THREE.BufferAttribute;
+    _n.getNormalMatrix(m);
+    const lo: [number, number, number] = [Infinity, Infinity, Infinity], hi: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < P.count; i++) {
+      _p.fromBufferAttribute(P, i).applyMatrix4(m);
+      _nv.fromBufferAttribute(N, i).applyMatrix3(_n).normalize();
+      buf.pos.push(_p.x, _p.y, _p.z); buf.nor.push(_nv.x, _nv.y, _nv.z);
+      // contact shading: walls darken towards the ground so buildings sit on it instead of floating
+      const ao = buf === this.solid && Math.abs(_nv.y) < 0.5 ? 0.7 + 0.3 * Math.min(1, Math.max(0, _p.y / 1.8)) ** 0.8 : 1;
+      buf.col.push(color.r * ao, color.g * ao, color.b * ao);
+      if (opts?.cell !== undefined) {
+        const cols = 4, cx = opts.cell % cols, cy = Math.floor(opts.cell / cols);
+        buf.uv.push((cx + U.getX(i)) / cols, 1 - (cy + 1 - U.getY(i)) / 16);
+      } else if (Math.abs(_nv.y) > 0.7) buf.uv.push(_p.x * 0.22, _p.z * 0.22);
+      else if (Math.abs(_nv.x) > Math.abs(_nv.z)) buf.uv.push(_p.z * 0.22, _p.y * 0.22);
+      else buf.uv.push(_p.x * 0.22, _p.y * 0.22);
+      buf.seed.push(opts?.seed ?? 0); buf.shop.push(opts?.shop ?? 0); buf.bld.push(this.rangeIndex); buf.mat.push(buf === this.solid ? this.curMat : 0);
+      for (let k = 0; k < 3; k++) { const v = k === 0 ? _p.x : k === 1 ? _p.y : _p.z; if (v < lo[k]) lo[k] = v; if (v > hi[k]) hi[k] = v; }
+    }
+    if (buf === this.solid) this.parts.push({ id: this.rangeId, tag: this.tag, min: lo, max: hi });
+  }
+
+  /** Generic part in building-local space. pos = centre (box) / base-centre (hip, gable, cyl uses centre). */
+  put(shape: Shape, pos: [number, number, number], scale: [number, number, number], color: string | THREE.Color, rot: [number, number, number] = [0, 0, 0]): void {
+    _e.set(rot[0], rot[1], rot[2]); _q.setFromEuler(_e); _s.set(scale[0], scale[1], scale[2]);
+    _m.compose(_p.set(pos[0], pos[1], pos[2]), _q, _s).premultiply(this.base);
+    this.curMat = this.mat >= 0 ? this.mat : autoMat(shape, color, scale);
+    this.push(this.solid, shape, _m, _c.set(color as THREE.ColorRepresentation));
+    this.curMat = MAT.flat;
+  }
+  box(cx: number, cy: number, cz: number, sx: number, sy: number, sz: number, color: string | THREE.Color, ry = 0): void { this.put('box', [cx, cy, cz], [sx, sy, sz], color, [0, ry, 0]); }
+  /** Box standing on the ground/floor y0 with height h. */
+  block(cx: number, y0: number, cz: number, sx: number, h: number, sz: number, color: string | THREE.Color, ry = 0): void { this.box(cx, y0 + h / 2, cz, sx, h, sz, color, ry); }
+  cyl(cx: number, y0: number, cz: number, rx: number, h: number, color: string | THREE.Color, rTopScale = 1): void {
+    this.put('cyl', [cx, y0 + h / 2, cz], [rx, h, rx], color);
+    void rTopScale;
+  }
+  /** Gable roof: eave at y0; ridge runs along local Z unless ridgeX. */
+  gable(cx: number, y0: number, cz: number, W: number, D: number, rise: number, color: string | THREE.Color, ridgeX = false): void {
+    if (!ridgeX) this.put('gable', [cx, y0, cz], [W, rise, D], color);
+    else this.put('gable', [cx, y0, cz], [D, rise, W], color, [0, Math.PI / 2, 0]);
+  }
+  hip(cx: number, y0: number, cz: number, W: number, D: number, rise: number, color: string | THREE.Color): void { this.put('hip', [cx, y0, cz], [W, rise, D], color); }
+
+  /** A window on a face of a W×D box. face: 0 front(+z) 1 back 2 right(+x) 3 left. u along the face, v height. */
+  window(face: 0 | 1 | 2 | 3, W: number, D: number, u: number, v: number, w: number, h: number, seed: number, shop: number, frame: string | THREE.Color = '#f1ebdd'): void {
+    const th = [0, Math.PI, Math.PI / 2, -Math.PI / 2][face];
+    const ox = face === 2 ? W / 2 : face === 3 ? -W / 2 : 0, oz = face === 0 ? D / 2 : face === 1 ? -D / 2 : 0;
+    const place = (off: number, sw: number, sh: number) => _m.makeRotationY(th).setPosition(ox, 0, oz)
+      .multiply(new THREE.Matrix4().compose(_p.set(u, v, off), _q.identity(), _s.set(sw, sh, 1))).premultiply(this.base);
+    this.curMat = MAT.flat;
+    this.push(this.solid, 'plane', place(0.02, w + 0.22, h + 0.22), _c.set(frame as THREE.ColorRepresentation));
+    this.push(this.glass, 'plane', place(0.045, w, h), _c.set('#6f8d9a'), { seed, shop });
+  }
+  /** A flat panel on a face (shutters, railings, plaques). Same face convention as window(). */
+  facePlane(face: 0 | 1 | 2 | 3, W: number, D: number, u: number, v: number, w: number, h: number, off: number, color: string | THREE.Color): void {
+    const th = [0, Math.PI, Math.PI / 2, -Math.PI / 2][face];
+    const ox = face === 2 ? W / 2 : face === 3 ? -W / 2 : 0, oz = face === 0 ? D / 2 : face === 1 ? -D / 2 : 0;
+    _m.makeRotationY(th).setPosition(ox, 0, oz).multiply(new THREE.Matrix4().compose(_p.set(u, v, off), _q.identity(), _s.set(w, h, 1))).premultiply(this.base);
+    this.curMat = this.mat >= 0 ? this.mat : MAT.flat;
+    this.push(this.solid, 'plane', _m, _c.set(color as THREE.ColorRepresentation));
+    this.curMat = MAT.flat;
+  }
+  /** Grid of windows across a face. */
+  windows(face: 0 | 1 | 2 | 3, W: number, D: number, o: { floors: number; cols: number; y0: number; floorH: number; w?: number; h?: number; shop?: number; seed: number; skip?: (r: number, c: number) => boolean; frame?: string }): void {
+    const fw = face < 2 ? W : D;
+    const w = o.w ?? 0.9, h = o.h ?? 1.15;
+    for (let r = 0; r < o.floors; r++) for (let c = 0; c < o.cols; c++) {
+      if (o.skip?.(r, c)) continue;
+      const u = (c + 0.5) / o.cols * fw - fw / 2;
+      const seed = ((o.seed * 7919 + r * 131 + c * 31 + face * 17) % 1000) / 1000;
+      this.window(face, W, D, u, o.y0 + r * o.floorH + h / 2 + 0.55, w, h, seed, o.shop ?? 0, o.frame);
+    }
+  }
+  /** Lit-from-inside part (lamps, lantern): goes in the glass buffer, always on at night. */
+  lamp(cx: number, cy: number, cz: number, r: number, color = '#ffd9a0', h = r): void {
+    _m.compose(_p.set(cx, cy, cz), _q.identity(), _s.set(r, h, r)).premultiply(this.base);
+    this.push(this.glass, 'cyl8', _m, _c.set(color), { seed: -1, shop: 0 }); // seed<0 => always lit
+  }
+  /** Sign board with a text cell from the atlas. */
+  signBoard(text: string, bg: string, fg: string, cx: number, cy: number, cz: number, w: number, h: number, back = '#3a2f26'): void {
+    const idx = this.cells.length;
+    this.cells.push({ text, bg, fg });
+    this.box(cx, cy, cz - 0.04, w + 0.15, h + 0.15, 0.1, back);
+    _m.compose(_p.set(cx, cy, cz + 0.03), _q.identity(), _s.set(w, h, 1)).premultiply(this.base);
+    this.push(this.sign, 'plane', _m, _c.set('#ffffff'), { cell: idx });
+    const [ax, az] = this.toWorld(cx, cz);
+    this.anchors.push({ buildingId: this.rangeId, kind: 'sign', x: ax, z: az });
+  }
+  anchor(kind: Anchor['kind'], lx: number, lz: number, localHeading?: number, parent?: string): void {
+    const [x, z] = this.toWorld(lx, lz);
+    this.anchors.push({ buildingId: parent ?? this.rangeId, kind, x, z, heading: localHeading === undefined ? undefined : localHeading + this.yaw });
+  }
+  /** Run `fn` in a temporary local frame (world x, z, yaw) — used for free-standing street furniture. */
+  frame(x: number, z: number, yaw: number, fn: () => void): void {
+    const sb = this.base.clone(), sy = this.yaw, sx = this.ox, sz = this.oz;
+    this.yaw = yaw; this.ox = x; this.oz = z;
+    this.base.makeRotationY(yaw).setPosition(x, this.oy, z);
+    fn();
+    this.base.copy(sb); this.yaw = sy; this.ox = sx; this.oz = sz;
+  }
+
+  toGeometry(buf: Buf, withLit: boolean): THREE.BufferGeometry {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(buf.pos, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(buf.nor, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(buf.col, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(buf.uv, 2));
+    if (buf === this.solid) g.setAttribute('aMat', new THREE.Float32BufferAttribute(buf.mat, 1));
+    if (withLit) { g.setAttribute('aSeed', new THREE.Float32BufferAttribute(buf.seed, 1)); g.setAttribute('aBld', new THREE.Float32BufferAttribute(buf.bld, 1)); }
+    g.computeBoundingSphere();
+    return g;
+  }
+}
