@@ -3,6 +3,8 @@ import { sim, useGame } from './store/game';
 import { registry } from './render/registry';
 import { renderPos } from './render/citizens/Citizens';
 import { POSTCARDS } from './render/lookdev';
+import { advance } from './sim/engine';
+import { resetInterp } from './render/interp';
 
 export function installDebug(): void {
   const hash = () => {
@@ -17,7 +19,7 @@ export function installDebug(): void {
     postcards: POSTCARDS,
     setSpeed(s: 0 | 1 | 2 | 5 | 10) { useGame.getState().setSpeed(s); },
     /** rendered (interpolated) positions of visible residents */
-    positions: () => [...renderPos.entries()].filter(([, r]) => r.visible).map(([id, r]) => ({ id, x: r.x + r.ox, z: r.z + r.oz })),
+    positions: () => [...renderPos.entries()].filter(([, r]) => r.visible).map(([id, r]) => ({ id, x: r.x + r.ox, z: r.z + r.oz, state: r.state, heading: r.heading })),
     counts: () => ({
       citizens: Object.values(sim.world.citizens).filter(c => c.movedOutAt === undefined).length,
       buildings: Object.values(sim.world.buildings).filter(b => b.status !== 'demolished').length,
@@ -29,6 +31,8 @@ export function installDebug(): void {
       w.time = Math.floor(w.time / 1440) * 1440 + Math.round(hour * 60);
       w.env.weather = weather; w.env.nextWeatherAt = w.time + 100000;
     },
+    /** Run the simulation forward naturally (unlike setTime, everyone keeps to their day). */
+    run(minutes: number) { advance(sim.world, minutes); resetInterp(sim.world); },
     /** Jump to day N of the calendar (changes season) keeping the time of day. */
     setDay(day: number) { const w = sim.world; w.time = day * 1440 + (w.time % 1440); },
     setCamera(pos: [number, number, number], look: [number, number, number]) {

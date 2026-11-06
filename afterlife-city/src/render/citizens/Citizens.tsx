@@ -9,6 +9,8 @@ import { doorPoint } from '../../sim/doors';
 import { cityData } from '../buildings/data';
 import { interp } from '../interp';
 import { animUniforms, characterGeometry, characterMaterial } from './character';
+import { loadClips, loadModel, Resident } from './SkinnedCrowd';
+import { modelFor } from './models';
 
 const CAP = 48;
 const SKIN = ['#efc9a6', '#dcae86', '#c18c63', '#8d5d3f'];
@@ -17,7 +19,7 @@ const TOP = ['#a95a4c', '#c79a52', '#5f8296', '#5b8a78', '#7d6a92', '#e2dacb', '
 const BOTTOM = ['#2f3644', '#4a4036', '#68707a', '#3e566e', '#2a3229'];
 
 interface RS {
-  x: number; z: number; heading: number; phase: number; visible: boolean;
+  x: number; z: number; heading: number; phase: number; visible: boolean; state: number; speed: number; umbrella: boolean;
   ox: number; oz: number;            // separation offset (so people do not walk through each other)
   leaving: { x: number; z: number } | null; // walking back to a door before disappearing inside
 }
@@ -27,7 +29,9 @@ export const renderPos = new Map<string, RS>();
 const hash = (s: string) => { let h = 5; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) % 100003; return h; };
 const angDiff = (a: number, b: number) => { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
 
-export function Citizens() {
+export function Citizens({ hi = 0, shadows = false }: { hi?: number; shadows?: boolean }) {
+  const hiGroup = useRef<THREE.Group>(null!);
+  const crowd = useRef({ residents: new Map<string, Resident>(), loading: new Set<string>(), chosen: new Set<string>(), pickAt: 0, clips: null as THREE.AnimationClip[] | null });
   const body = useRef<THREE.InstancedMesh>(null!), hit = useRef<THREE.InstancedMesh>(null!), blob = useRef<THREE.InstancedMesh>(null!);
   const geo = useMemo(() => {
     const g = characterGeometry();
@@ -49,9 +53,10 @@ export function Citizens() {
   });
   const tmp = useMemo(() => ({ m: new THREE.Matrix4(), q: new THREE.Quaternion(), p: new THREE.Vector3(), s: new THREE.Vector3(), c: new THREE.Color(), up: new THREE.Vector3(0, 1, 0) }), []);
 
-  useEffect(() => () => { geo.dispose(); mat.dispose(); hitGeo.dispose(); blobGeo.dispose(); blobTex.dispose(); }, [geo, mat, hitGeo, blobGeo, blobTex]);
+  useEffect(() => () => { geo.dispose(); mat.dispose(); hitGeo.dispose(); blobGeo.dispose(); blobTex.dispose(); for (const r of crowd.current.residents.values()) r.dispose(); }, [geo, mat, hitGeo, blobGeo, blobTex]);
 
-  useFrame(({ clock }, dtRaw) => {
+  useFrame((state, dtRaw) => {
+    const { clock } = state;
     const dt = Math.min(dtRaw, 0.1);
     animUniforms.uTime.value = clock.elapsedTime;
     const w = sim.world, st = store.current;
@@ -88,7 +93,7 @@ export function Citizens() {
     const states: { x: number; z: number; walking: boolean; state: number; i: number }[] = [];
     list.forEach((c, i) => {
       let rs = renderPos.get(c.id);
-      if (!rs) { rs = { x: c.x, z: c.z, heading: 0, phase: i, visible: false, ox: 0, oz: 0, leaving: null }; renderPos.set(c.id, rs); }
+      if (!rs) { rs = { x: c.x, z: c.z, heading: 0, phase: i, visible: false, state: 0, speed: 0, umbrella: false, ox: 0, oz: 0, leaving: null }; renderPos.set(c.id, rs); }
       const b = w.buildings[c.currentLocation];
       const arrived = c.plan?.arrived === true;
       const indoors = !!b && !isOutdoor(b) && arrived;
@@ -145,7 +150,9 @@ export function Citizens() {
       rs.heading += angDiff(rs.heading, target) * (1 - Math.exp(-dt * (walking ? 8 : 4)));
       if (walking) rs.phase += moved * 4.4;
       states.push({ x: rs.x, z: rs.z, walking, state, i });
-      anim.setXYZW(i, state, rs.phase, Math.min(1, Math.max(0.35, speed / Math.max(WALK_SPEED, 0.1))), raining && visible && state !== 2 && !(b && !isOutdoor(b) && arrived && !seat) ? 1 : 0);
+      const umb = raining && visible && state !== 2 && !(b && !isOutdoor(b) && arrived && !seat);
+      rs.state = state; rs.speed = speed; rs.umbrella = umb;
+      anim.setXYZW(i, state, rs.phase, Math.min(1, Math.max(0.35, speed / Math.max(WALK_SPEED, 0.1))), umb ? 1 : 0);
     });
 
     // keep people from overlapping: push pairs apart, and let talkers face each other
@@ -164,9 +171,47 @@ export function Citizens() {
       if (best >= 0) { const o = states[best]; ra.heading += angDiff(ra.heading, Math.atan2(o.x - A.x, o.z - A.z)) * 0.1; }
     }
 
+    // ---- nearest residents get the rigged models (sticky choice, re-evaluated a few times a second)
+    const cr = crowd.current;
+    if (hi > 0) {
+      if (!cr.clips) { void loadClips().then(cl => { cr.clips = cl; }); }
+      const camPos = state.camera.position;
+      if (clock.elapsedTime > cr.pickAt) {
+        cr.pickAt = clock.elapsedTime + 0.4;
+        const cand = list.map(c => ({ c, rs: renderPos.get(c.id)! })).filter(e => e.rs.visible)
+          .map(e => ({ id: e.c.id, c: e.c, d: Math.hypot(e.rs.x - camPos.x, e.rs.z - camPos.z, camPos.y * 0.5) }))
+          .filter(e => e.d < 75).sort((a, b) => a.d - b.d);
+        const keep = new Set<string>();
+        for (const e of cand) { if (keep.size >= hi) break; if (cr.chosen.has(e.id) || keep.size < hi) keep.add(e.id); }
+        cr.chosen = keep;
+        for (const id of keep) {
+          if (cr.residents.has(id) || cr.loading.has(id) || !cr.clips) continue;
+          const c = w.citizens[id]; if (!c) continue;
+          cr.loading.add(id);
+          void loadModel(modelFor(c)).then(g => {
+            const pal = { skin: new THREE.Color(SKIN[c.look.skin]), hair: new THREE.Color(c.age > 62 ? HAIR[4] : HAIR[c.look.hair]), top: new THREE.Color(TOP[c.look.top]), bottom: new THREE.Color(BOTTOM[c.look.bottom]) };
+            const r = new Resident(g, cr.clips!, pal, 1.72 * c.look.height * (c.age > 65 ? 0.95 : 1), shadows);
+            r.root.visible = false;
+            hiGroup.current?.add(r.root);
+            cr.residents.set(id, r);
+          }).finally(() => cr.loading.delete(id));
+        }
+      }
+      for (const [id, r] of cr.residents) {
+        const rs = renderPos.get(id);
+        const on = !!rs && rs.visible && cr.chosen.has(id);
+        r.root.visible = on;
+        if (!on || !rs) continue;
+        r.root.position.set(rs.x + rs.ox, rs.state === 2 ? 0.02 : 0.1, rs.z + rs.oz);
+        r.root.rotation.y = rs.heading;
+        r.update(dt, rs.state, rs.speed, rs.umbrella);
+      }
+    }
+
     list.forEach((c, i) => {
       const rs = renderPos.get(c.id)!;
-      const sc = rs.visible ? 0.93 * c.look.height * (c.age > 65 ? 0.95 : 1) : 0;
+      const isHi = hi > 0 && cr.chosen.has(c.id) && cr.residents.get(c.id)?.root.visible;
+      const sc = rs.visible && !isHi ? 0.93 * c.look.height * (c.age > 65 ? 0.95 : 1) : 0;
       const x = rs.x + rs.ox, z = rs.z + rs.oz;
       tmp.q.setFromAxisAngle(tmp.up, rs.heading);
       tmp.m.compose(tmp.p.set(x, 0.12, z), tmp.q, tmp.s.set(sc, sc, sc));
@@ -191,6 +236,7 @@ export function Citizens() {
       <instancedMesh ref={blob} args={[blobGeo, undefined, CAP]} frustumCulled={false} renderOrder={1}>
         <meshBasicMaterial map={blobTex} transparent depthWrite={false} polygonOffset polygonOffsetFactor={-1} />
       </instancedMesh>
+      <group ref={hiGroup} />
       <Marker />
     </group>
   );

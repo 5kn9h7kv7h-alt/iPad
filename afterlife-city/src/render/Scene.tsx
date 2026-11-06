@@ -9,6 +9,7 @@ import { Terrain } from './world/Terrain';
 import { Landscape } from './world/Landscape';
 import { Vegetation } from './world/Vegetation';
 import { Boats } from './world/Boats';
+import { Vehicles } from './world/Vehicles';
 import { Weather } from './world/Weather';
 import { Citizens } from './citizens/Citizens';
 import { CameraRig } from './CameraRig';
@@ -51,7 +52,8 @@ export function CityCanvas({ frameloop, tier }: { frameloop: 'always' | 'never';
       <Buildings />
       <Vegetation scale={q.treeScale} bushes={tier !== 'low'} detail={q.treeDetail} />
       <Boats />
-      <Citizens />
+      <Vehicles shadows={tier === 'high'} />
+      <Citizens hi={q.hiResidents} shadows={tier === 'high'} />
       <Weather drops={q.rainDrops} drift={q.driftParticles} />
       <CameraRig />
       {q.post && <PostFX settings={q.post} />}

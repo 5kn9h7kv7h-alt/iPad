@@ -9,8 +9,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { dedup, prune, quantize, meshopt } from '@gltf-transform/functions';
-import { MeshoptEncoder } from 'meshoptimizer';
+import { dedup, prune, quantize, meshopt, simplify, weld } from '@gltf-transform/functions';
+import { MeshoptEncoder, MeshoptSimplifier } from 'meshoptimizer';
 
 const [, , srcDir, fbx2gltf] = process.argv;
 const OUT = new URL('../../public/assets/characters/', import.meta.url).pathname;
@@ -22,6 +22,7 @@ const KEEP_ANIMS = ['Idle', 'Walk', 'SitDown', 'StandUp', 'PickUp', 'Victory'];
 const SLOT = { Skin: 0, Hair: 1, Shirt: 2, Clothes: 2, Vest: 2, Main: 2, Pants: 3, DarkClothes: 3, Black: 3 };
 
 await MeshoptEncoder.ready;
+await MeshoptSimplifier.ready;
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.encoder': MeshoptEncoder });
 const tmp = mkdtempSync(join(tmpdir(), 'chars-'));
 
@@ -77,7 +78,7 @@ for (const [i, name] of MODELS.entries()) {
     for (const p of prims) { mesh.removePrimitive(p); p.dispose(); }
     mesh.addPrimitive(merged);
   }
-  await doc.transform(prune(), dedup(), quantize({ pattern: /^(POSITION|NORMAL|JOINTS_0|WEIGHTS_0)$/ }), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
+  await doc.transform(weld(), simplify({ simplifier: MeshoptSimplifier, ratio: 0.58, error: 0.0025 }), prune(), dedup(), quantize({ pattern: /^(POSITION|NORMAL|JOINTS_0|WEIGHTS_0)$/ }), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
   await io.write(join(OUT, `${name}.glb`), doc);
   console.log(name, statSync(join(OUT, `${name}.glb`)).size, 'bytes');
 }

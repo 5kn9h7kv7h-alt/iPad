@@ -161,8 +161,8 @@ export class Batch {
     }
   }
   /** Lit-from-inside part (lamps, lantern): goes in the glass buffer, always on at night. */
-  lamp(cx: number, cy: number, cz: number, r: number, color = '#ffd9a0'): void {
-    _m.compose(_p.set(cx, cy, cz), _q.identity(), _s.set(r, r, r)).premultiply(this.base);
+  lamp(cx: number, cy: number, cz: number, r: number, color = '#ffd9a0', h = r): void {
+    _m.compose(_p.set(cx, cy, cz), _q.identity(), _s.set(r, h, r)).premultiply(this.base);
     this.push(this.glass, 'cyl8', _m, _c.set(color), { seed: -1, shop: 0 }); // seed<0 => always lit
   }
   /** Sign board with a text cell from the atlas. */

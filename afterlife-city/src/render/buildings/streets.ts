@@ -43,10 +43,18 @@ function bin(B: Batch, x: number, z: number): void { B.cyl(x, 0, z, 0.3, 0.8, co
 function bollard(B: Batch, x: number, z: number): void { B.cyl(x, 0, z, 0.2, 0.55, col('#3c4046')); B.cyl(x, 0.55, z, 0.24, 0.1, col(PAL.golden)); }
 function crate(B: Batch, x: number, z: number, s = 1, c = PAL.wood, ry = 0): void { B.box(x, 0.3 * s, z, 0.8 * s, 0.6 * s, 0.8 * s, col(c), ry); }
 function barrel(B: Batch, x: number, z: number, c = PAL.blue): void { B.cyl(x, 0, z, 0.4, 0.9, col(c)); B.cyl(x, 0.45, z, 0.42, 0.06, col(PAL.slate)); }
+/** Cast-iron lantern: stepped plinth, slim pole with collars, glazed lantern under a pyramid cap. */
 function lampPost(B: Batch, x: number, z: number, tall = 4.6): void {
-  B.cyl(x, 0, z, 0.09, tall, col('#2c3036'));
-  B.cyl(x, 0, z, 0.2, 0.4, col('#2c3036'));
-  B.lamp(x, tall + 0.1, z, 0.3);
+  const iron = col('#262b2c');
+  const ring = (y0: number, r: number, h: number) => B.put('cyl8', [x, y0 + h / 2, z], [r, h, r], iron); // 8-sided: cheap
+  ring(0, 0.22, 0.32); ring(0.32, 0.16, 0.34); ring(0.66, 0.11, 0.08);
+  ring(0.74, 0.07, tall - 1.0);                                // pole
+  ring(1.6, 0.1, 0.07); ring(tall - 0.4, 0.12, 0.1);           // collars
+  ring(tall - 0.3, 0.17, 0.08);                                // lantern base
+  B.lamp(x, tall + 0.03, z, 0.19, '#ffd9a0', 0.56);            // glass
+  for (const [dx, dz] of [[0.17, 0], [-0.17, 0], [0, 0.17], [0, -0.17]]) B.block(x + dx, tall - 0.24, z + dz, 0.035, 0.56, 0.035, iron);
+  B.hip(x, tall + 0.32, z, 0.5, 0.5, 0.26, iron);              // cap
+  ring(tall + 0.56, 0.03, 0.16);                               // finial
   B.anchor('lamp', x, z, undefined, 'street');
 }
 
@@ -162,6 +170,26 @@ export function designStreet(B: Batch, w: WorldState): void {
       B.cyl(x + 2.6, 0, z + 0.6, 0.07, 3.0, col('#2c3036')); B.box(x + 2.6, 3.1, z + 0.6, 0.7, 0.5, 0.06, col(PAL.blue));
     }, 'busstop');
   }
+
+  // ---- seaside gazebo past the lighthouse (decorative; strollers by the lighthouse stay on its seaward ring)
+  if (b.b_lookout) place(B, w, 3.0, [[b.b_lookout.x + 12, b.b_lookout.z + 4.5], [b.b_lookout.x + 12.5, b.b_lookout.z + 5.5]], (x, z) => {
+    const white = col('#eee8da'), roof = col('#5f8b80'), R = 2.3;
+    B.mat = MAT.stone; B.put('cyl8', [x, 0.15, z], [R + 0.35, 0.3, R + 0.35], col('#cbbfa8')); B.mat = -1;
+    for (let k = 0; k < 8; k++) {
+      const a = (k + 0.5) * Math.PI / 4, px = x + Math.sin(a) * R, pz = z + Math.cos(a) * R;
+      B.put('cyl8', [px, 1.6, pz], [0.08, 2.6, 0.08], white);
+    }
+    // railing between the posts, open towards the sea
+    for (let k = 1; k < 8; k++) {
+      const a0 = (k - 0.5) * Math.PI / 4, a1 = (k + 0.5) * Math.PI / 4;
+      const mx = x + Math.sin((a0 + a1) / 2) * R * 0.924, mz = z + Math.cos((a0 + a1) / 2) * R * 0.924;
+      B.box(mx, 0.95, mz, 2 * R * Math.sin(Math.PI / 8), 0.07, 0.07, white, (a0 + a1) / 2);
+    }
+    B.put('cyl8', [x, 2.95, z], [R + 0.25, 0.14, R + 0.25], white);                 // ring beam
+    B.mat = MAT.roof; B.hip(x, 3.02, z, (R + 0.55) * 1.42, (R + 0.55) * 1.42, 1.5, roof);
+    B.put('hip', [x, 3.02, z], [(R + 0.55) * 1.42, 1.5, (R + 0.55) * 1.42], roof, [0, Math.PI / 4, 0]); B.mat = -1;
+    B.put('cyl8', [x, 4.75, z], [0.05, 0.5, 0.05], col('#3a3f3f'));
+  }, 'gazebo');
 
   // ---- harbor: bollards, crates, barrels, drying racks, piers
   for (let x = -76; x <= -20; x += 5) bollard(B, x, 50.6);
