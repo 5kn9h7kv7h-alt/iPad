@@ -7,8 +7,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { dedup, flatten, join as joinPrims, prune, quantize, meshopt, weld } from '@gltf-transform/functions';
-import { MeshoptEncoder } from 'meshoptimizer';
+import { dedup, flatten, join as joinPrims, prune, quantize, meshopt, simplify, weld } from '@gltf-transform/functions';
+import { MeshoptEncoder, MeshoptSimplifier } from 'meshoptimizer';
 
 const [, , root, fbx2gltf] = process.argv;
 const OUT = new URL('../../public/assets/vehicles/', import.meta.url).pathname;
@@ -52,6 +52,7 @@ const hex = c => c.map(v => v.toString(16).padStart(2, '0')).join('');
 const toLin = v => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
 const linOf = h => [1, 3, 5].map(i => toLin(parseInt(h.slice(i, i + 2), 16)));
 await MeshoptEncoder.ready;
+await MeshoptSimplifier.ready;
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.encoder': MeshoptEncoder });
 const tmp = mkdtempSync(join(tmpdir(), 'veh-'));
 for (const [src, name, paint] of ITEMS) {
@@ -74,12 +75,16 @@ for (const [src, name, paint] of ITEMS) {
       } else col.set([c[0], c[1], c[2]], v * 3);
     }
     prim.setAttribute('COLOR_0', doc.createAccessor().setType('VEC3').setArray(col).setBuffer(r.listBuffers()[0]));
-    for (const sem of prim.listSemantics()) if (!['POSITION', 'NORMAL', 'COLOR_0'].includes(sem)) prim.setAttribute(sem, null);
+    // normals are dropped so faces can be welded and simplified; the loader recomputes flat normals
+    for (const sem of prim.listSemantics()) if (!['POSITION', 'COLOR_0'].includes(sem)) prim.setAttribute(sem, null);
     prim.setMaterial(shared);
   }
-  await doc.transform(flatten(), joinPrims({ keepMeshes: false, keepNamed: false }), weld(), prune(), dedup(), quantize(), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
+  await doc.transform(flatten(), joinPrims({ keepMeshes: false, keepNamed: false }), weld(),
+    // the wheels are most of the triangles; seen from a street camera a third of them is plenty
+    simplify({ simplifier: MeshoptSimplifier, ratio: 0.35, error: 0.02 }), prune(), dedup(), quantize(), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
   await io.write(join(OUT, `${name}.glb`), doc);
   const prims = doc.getRoot().listMeshes().reduce((s, m) => s + m.listPrimitives().length, 0);
-  console.log(name, statSync(join(OUT, `${name}.glb`)).size, 'bytes,', prims, 'primitive(s)', seen.size ? Object.fromEntries(seen) : '');
+  const tris = doc.getRoot().listMeshes().reduce((s, m) => s + m.listPrimitives().reduce((t, p) => t + (p.getIndices()?.getCount() ?? p.getAttribute('POSITION').getCount()) / 3, 0), 0);
+  console.log(name, statSync(join(OUT, `${name}.glb`)).size, 'bytes,', prims, 'primitive(s),', tris, 'triangles');
 }
 rmSync(tmp, { recursive: true, force: true });

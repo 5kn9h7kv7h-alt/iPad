@@ -16,8 +16,8 @@ import { CameraRig } from './CameraRig';
 import { PostFX } from './post/PostFX';
 
 function StatsProbe() {
-  const gl = useThree(s => s.gl);
-  useEffect(() => { gl.info.autoReset = false; }, [gl]);
+  const gl = useThree(s => s.gl), scene = useThree(s => s.scene);
+  useEffect(() => { gl.info.autoReset = false; registry.scene = scene; return () => { registry.scene = null; }; }, [gl, scene]);
   useFrame(() => {
     // Runs before this frame's render, so info holds the previous completed frame.
     const i = gl.info;

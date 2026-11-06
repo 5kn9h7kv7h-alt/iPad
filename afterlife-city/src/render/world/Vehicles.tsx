@@ -45,8 +45,9 @@ async function loadGeometry(name: VName): Promise<THREE.BufferGeometry> {
   const k = LEN[name] / (b.max.z - b.min.z), kw = Math.min(k, (WID[name] ?? Infinity) / (b.max.x - b.min.x));
   geo.translate(-(b.min.x + b.max.x) / 2, -b.min.y, -(b.min.z + b.max.z) / 2);
   geo.scale(kw, (k + kw) / 2, k);
-  geo.computeVertexNormals();
-  return geo;
+  const flat = geo.index ? geo.toNonIndexed() : geo; // faceted look
+  flat.computeVertexNormals();
+  return flat;
 }
 
 export function Vehicles({ shadows }: { shadows: boolean }) {

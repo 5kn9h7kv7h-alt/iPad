@@ -146,7 +146,7 @@ export function Vegetation({ scale, bushes, detail }: { scale: number; bushes: b
   const groups = useMemo(() => [0, 1, 2].map(k => trees.filter(t => t.kind === k && !t.far)), [trees]);
   const farGroups = useMemo(() => [trees.filter(t => t.far && t.kind === 0), trees.filter(t => t.far && t.kind !== 0)], [trees]);
   const farRefs = [useRef<THREE.InstancedMesh>(null!), useRef<THREE.InstancedMesh>(null!)];
-  const farGeos = useMemo(() => { const a = new THREE.ConeGeometry(1.1, 4.6, 7); a.translate(0, 2.9, 0); const b = new THREE.SphereGeometry(1.25, 9, 6); b.scale(1, 0.85, 1); b.translate(0, 2.3, 0); return [a, b]; }, []);
+  const farGeos = useMemo(() => { const a = new THREE.ConeGeometry(1.1, 4.6, 7); a.translate(0, 2.9, 0); const b = new THREE.SphereGeometry(1.25, 7, 5); b.scale(1, 0.85, 1); b.translate(0, 2.3, 0); return [a, b]; }, []);
   const farMat = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 1 }), []);
   const refs = [useRef<THREE.InstancedMesh>(null!), useRef<THREE.InstancedMesh>(null!), useRef<THREE.InstancedMesh>(null!)];
   const trunk = useRef<THREE.InstancedMesh>(null!);
