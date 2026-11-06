@@ -58,28 +58,23 @@ export function characterMaterial(): THREE.MeshStandardMaterial {
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
 attribute float aSlot; attribute float aPart; attribute vec3 aPivot;
-attribute vec3 iTop; attribute vec3 iBottom; attribute vec3 iSkin; attribute vec3 iHair; attribute vec4 iAnim;
+attribute vec3 iTop; attribute vec3 iBottom; attribute vec3 iSkin; attribute vec3 iHair; attribute vec4 iAnim; attribute vec3 iPose;
 uniform float uTime; varying vec3 vCol;`)
       .replace('#include <begin_vertex>', `
   vec3 transformed = position;
-  float st = iAnim.x, ph = iAnim.y, amp = iAnim.z;
-  float sw = sin(ph);
-  float ang = 0.0;
+  float ph = iAnim.y, amp = iAnim.z;
   bool umb = iAnim.w > 0.5;
-  if (st < 1.5) { // idle / walk
-    float k = st > 0.5 ? amp : 0.0;
-    if (aPart > 0.5 && aPart < 1.5) ang = sw * 0.75 * k;
-    else if (aPart > 1.5 && aPart < 2.5) ang = -sw * 0.75 * k;
-    else if (aPart > 2.5 && aPart < 3.5) ang = -sw * 0.6 * k;
-    else if (aPart > 3.5) ang = sw * 0.6 * k;
-    else ang = 0.0;
-  } else if (st < 2.5) { // sitting: thighs forward, hands in lap
-    if (aPart > 0.5 && aPart < 2.5) ang = -1.5;
-    else if (aPart > 2.5) ang = -0.55;
-  } else { // talking: expressive right arm, calmer left
-    if (aPart > 3.5) ang = -1.15 + sin(uTime * 4.0 + ph) * 0.4;
-    else if (aPart > 2.5 && aPart < 3.5) ang = -0.25 + sin(uTime * 2.3 + ph) * 0.15;
-  }
+  float sit = iPose.x, talk = iPose.y, seed = iPose.z;
+  float sw = sin(ph);
+  float k = amp * (1.0 - sit);
+  // idle <-> walk: arms and legs swing in opposite phase, and everything fades with speed (no snapping)
+  float aWalk = 0.0, aSit = 0.0, aTalk = 0.0;
+  float breathe = sin(uTime * 1.3 + seed * 6.28) * 0.035;
+  if (aPart > 0.5 && aPart < 1.5) { aWalk = sw * 0.75 * k; aSit = -1.5; aTalk = 0.0; }
+  else if (aPart > 1.5 && aPart < 2.5) { aWalk = -sw * 0.75 * k; aSit = -1.5; aTalk = 0.0; }
+  else if (aPart > 2.5 && aPart < 3.5) { aWalk = -sw * 0.6 * k + breathe * (1.0 - amp); aSit = -0.55; aTalk = -0.25 + sin(uTime * 2.3 + seed * 6.28) * 0.15; }
+  else if (aPart > 3.5 && aPart < 4.5) { aWalk = sw * 0.6 * k - breathe * (1.0 - amp); aSit = -0.55; aTalk = -1.15 + sin(uTime * 4.0 + seed * 6.28) * 0.4; }
+  float ang = mix(mix(aWalk, aTalk, talk * (1.0 - amp)), aSit, sit);
   if (umb && aPart > 3.5 && aPart < 4.5) ang = -0.85;            // right hand holds the umbrella
   if (aPart > 4.5 && !umb) transformed = vec3(0.0, -40.0, 0.0);  // umbrella hidden when dry
   if (aPart > 0.5 && aPart < 4.5) {
@@ -88,8 +83,9 @@ uniform float uTime; varying vec3 vCol;`)
     q = vec3(q.x, q.y * c - q.z * s, q.y * s + q.z * c);
     transformed = q + aPivot;
   }
-  if (st > 1.5 && st < 2.5) transformed.y -= 0.45;
-  transformed.y += st > 0.5 && st < 1.5 ? abs(sw) * 0.05 * amp : sin(uTime * 1.7 + ph) * 0.006;
+  transformed.y -= 0.45 * sit;
+  transformed.y += abs(sw) * 0.05 * k + sin(uTime * 1.7 + seed * 6.28) * 0.006 * (1.0 - sit);
+  if (sit < 0.5) transformed.x += sin(uTime * 0.6 + seed * 6.28) * 0.012 * (1.0 - amp); // weight shift while standing
   vCol = aSlot < 0.5 ? iSkin : aSlot < 1.5 ? iHair : aSlot < 2.5 ? iTop : aSlot < 3.5 ? iBottom : aSlot < 4.5 ? vec3(0.075, 0.065, 0.06) : mix(iBottom, vec3(0.2, 0.22, 0.25), 0.35);
 `);
     sh.fragmentShader = sh.fragmentShader

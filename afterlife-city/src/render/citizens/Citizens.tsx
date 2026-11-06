@@ -19,7 +19,7 @@ const TOP = ['#a95a4c', '#c79a52', '#5f8296', '#5b8a78', '#7d6a92', '#e2dacb', '
 const BOTTOM = ['#2f3644', '#4a4036', '#68707a', '#3e566e', '#2a3229'];
 
 interface RS {
-  x: number; z: number; heading: number; phase: number; visible: boolean; state: number; speed: number; umbrella: boolean;
+  x: number; z: number; heading: number; phase: number; visible: boolean; state: number; speed: number; umbrella: boolean; sp: number; walking: boolean; sit: number; talk: number; amp: number;
   ox: number; oz: number;            // separation offset (so people do not walk through each other)
   leaving: { x: number; z: number } | null; // walking back to a door before disappearing inside
 }
@@ -35,7 +35,7 @@ export function Citizens({ hi = 0, shadows = false }: { hi?: number; shadows?: b
   const body = useRef<THREE.InstancedMesh>(null!), hit = useRef<THREE.InstancedMesh>(null!), blob = useRef<THREE.InstancedMesh>(null!);
   const geo = useMemo(() => {
     const g = characterGeometry();
-    for (const [n, size] of [['iTop', 3], ['iBottom', 3], ['iSkin', 3], ['iHair', 3], ['iAnim', 4]] as const) g.setAttribute(n, new THREE.InstancedBufferAttribute(new Float32Array(CAP * size), size));
+    for (const [n, size] of [['iTop', 3], ['iBottom', 3], ['iSkin', 3], ['iHair', 3], ['iAnim', 4], ['iPose', 3]] as const) g.setAttribute(n, new THREE.InstancedBufferAttribute(new Float32Array(CAP * size), size));
     return g;
   }, []);
   const mat = useMemo(characterMaterial, []);
@@ -93,7 +93,7 @@ export function Citizens({ hi = 0, shadows = false }: { hi?: number; shadows?: b
     const states: { x: number; z: number; walking: boolean; state: number; i: number }[] = [];
     list.forEach((c, i) => {
       let rs = renderPos.get(c.id);
-      if (!rs) { rs = { x: c.x, z: c.z, heading: 0, phase: i, visible: false, state: 0, speed: 0, umbrella: false, ox: 0, oz: 0, leaving: null }; renderPos.set(c.id, rs); }
+      if (!rs) { rs = { x: c.x, z: c.z, heading: 0, phase: i, visible: false, state: 0, speed: 0, umbrella: false, sp: 0, walking: false, sit: 0, talk: 0, amp: 0, ox: 0, oz: 0, leaving: null }; renderPos.set(c.id, rs); }
       const b = w.buildings[c.currentLocation];
       const arrived = c.plan?.arrived === true;
       const indoors = !!b && !isOutdoor(b) && arrived;
@@ -141,18 +141,27 @@ export function Citizens({ hi = 0, shadows = false }: { hi?: number; shadows?: b
       else if (dist > 1e-4) { moved = Math.min(dist, pace * dt); rs.x += (dx / dist) * moved; rs.z += (dz / dist) * moved; }
       if (rs.leaving && Math.hypot(rs.leaving.x - rs.x, rs.leaving.z - rs.z) < 0.2) { rs.leaving = null; visible = indoors ? false : visible; }
       rs.visible = visible;
-      const speed = moved / Math.max(dt, 1e-3);
-      const walking = speed > 0.25;
+      // smoothed speed with hysteresis: no flicker between walking and standing
+      rs.sp += (moved / Math.max(dt, 1e-3) - rs.sp) * (1 - Math.exp(-dt * 5));
+      const walking = rs.sp > (rs.walking ? 0.12 : 0.3); rs.walking = walking;
+      const speed = rs.sp;
       let state = 0;
       if (seat && dist < 0.08) state = 2; else if (walking) state = 1; else if (c.activity === 'talk') state = 3;
       let target = rs.heading;
       if (state === 2) target = seat!.heading; else if (walking) target = Math.atan2(dx, dz);
+      else if (b && arrived && !indoors && ['beach', 'promenade', 'lookout'].includes(b.kind)) target = 0; // pausing by the water: look out to sea (the sea lies towards +z)
       rs.heading += angDiff(rs.heading, target) * (1 - Math.exp(-dt * (walking ? 8 : 4)));
       if (walking) rs.phase += moved * 4.4;
       states.push({ x: rs.x, z: rs.z, walking, state, i });
       const umb = raining && visible && state !== 2 && !(b && !isOutdoor(b) && arrived && !seat);
       rs.state = state; rs.speed = speed; rs.umbrella = umb;
-      anim.setXYZW(i, state, rs.phase, Math.min(1, Math.max(0.35, speed / Math.max(WALK_SPEED, 0.1))), umb ? 1 : 0);
+      // pose blends move gradually towards their targets, so sitting down, standing up and talking never snap
+      rs.sit += Math.sign((state === 2 ? 1 : 0) - rs.sit) * Math.min(Math.abs((state === 2 ? 1 : 0) - rs.sit), dt * 2.2);
+      rs.talk += Math.sign((state === 3 ? 1 : 0) - rs.talk) * Math.min(Math.abs((state === 3 ? 1 : 0) - rs.talk), dt * 2.0);
+      const ampT = walking ? Math.min(1, Math.max(0.35, speed / Math.max(WALK_SPEED, 0.1))) : 0;
+      rs.amp += (ampT - rs.amp) * (1 - Math.exp(-dt * 6));
+      anim.setXYZW(i, state, rs.phase, rs.amp, umb ? 1 : 0);
+      (geo.getAttribute('iPose') as THREE.InstancedBufferAttribute).setXYZ(i, rs.sit, rs.talk, (hash(c.id) % 997) / 997);
     });
 
     // keep people from overlapping: push pairs apart, and let talkers face each other
@@ -168,7 +177,7 @@ export function Citizens({ hi = 0, shadows = false }: { hi?: number; shadows?: b
       }
       const k = 1 - Math.exp(-dt * 5);
       ra.ox += (Math.max(-0.6, Math.min(0.6, px)) - ra.ox) * k; ra.oz += (Math.max(-0.6, Math.min(0.6, pz)) - ra.oz) * k;
-      if (best >= 0) { const o = states[best]; ra.heading += angDiff(ra.heading, Math.atan2(o.x - A.x, o.z - A.z)) * 0.1; }
+      if (best >= 0) { const o = states[best]; ra.heading += angDiff(ra.heading, Math.atan2(o.x - A.x, o.z - A.z)) * (1 - Math.exp(-dt * 3)); } // turn to the person they talk with
     }
 
     // ---- nearest residents get the rigged models (sticky choice, re-evaluated a few times a second)
@@ -200,8 +209,11 @@ export function Citizens({ hi = 0, shadows = false }: { hi?: number; shadows?: b
       for (const [id, r] of cr.residents) {
         const rs = renderPos.get(id);
         const on = !!rs && rs.visible && cr.chosen.has(id);
-        r.root.visible = on;
-        if (!on || !rs) continue;
+        // cross-fade with the light figure, which stays until the rigged model is fully opaque
+        const f = r.fade + Math.sign((on ? 1 : 0) - r.fade) * Math.min(Math.abs((on ? 1 : 0) - r.fade), dt * 2.2);
+        if (f !== r.fade) r.setFade(f);
+        r.root.visible = f > 0.01 && !!rs;
+        if (!r.root.visible || !rs) continue;
         r.root.position.set(rs.x + rs.ox, rs.state === 2 ? 0.02 : 0.1, rs.z + rs.oz);
         r.root.rotation.y = rs.heading;
         r.update(dt, rs.state, rs.speed, rs.umbrella);
@@ -210,7 +222,7 @@ export function Citizens({ hi = 0, shadows = false }: { hi?: number; shadows?: b
 
     list.forEach((c, i) => {
       const rs = renderPos.get(c.id)!;
-      const isHi = hi > 0 && cr.chosen.has(c.id) && cr.residents.get(c.id)?.root.visible;
+      const isHi = hi > 0 && (cr.residents.get(c.id)?.fade ?? 0) > 0.97;
       const sc = rs.visible && !isHi ? 0.93 * c.look.height * (c.age > 65 ? 0.95 : 1) : 0;
       const x = rs.x + rs.ox, z = rs.z + rs.oz;
       tmp.q.setFromAxisAngle(tmp.up, rs.heading);
@@ -222,7 +234,7 @@ export function Citizens({ hi = 0, shadows = false }: { hi?: number; shadows?: b
     });
     body.current.count = hit.current.count = blob.current.count = list.length;
     body.current.instanceMatrix.needsUpdate = hit.current.instanceMatrix.needsUpdate = blob.current.instanceMatrix.needsUpdate = true;
-    anim.needsUpdate = true;
+    anim.needsUpdate = true; (geo.getAttribute('iPose') as THREE.InstancedBufferAttribute).needsUpdate = true;
   });
 
   const select = useGame(s => s.selectCitizen);

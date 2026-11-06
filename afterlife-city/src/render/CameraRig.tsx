@@ -30,6 +30,7 @@ export function CameraRig() {
   const focusSeen = useRef(0);
   const tmp = useMemo(() => new THREE.Vector3(), []);
   const want = useMemo(() => new THREE.Vector3(), []);
+  const step = useMemo(() => new THREE.Vector3(), []);
 
   useEffect(() => {
     camera.position.set(0, 95, 120);
@@ -65,14 +66,22 @@ export function CameraRig() {
     const t = now - shotStart.current;
     const pose = poseFor(w, shot, t, now, { sunAz: Math.atan2(atmo.sunDir.x, atmo.sunDir.z), posOf: id => { const r = renderPos.get(id); return r ? { x: r.x + r.ox, z: r.z + r.oz } : undefined; } });
     // ease the start of each shot, quicker for follow shots
-    const k = 1 - Math.exp(-dt * (shot.kind === 'follow' ? 2.6 : shot.kind === 'aerial' ? 1.1 : 1.7));
+    // glide: position and look-at follow with the same easing (no whip-pan), and neither may exceed a top speed,
+    // so a change of shot is a slow sweep rather than a jump
+    const rate = shot.kind === 'follow' ? 1.8 : shot.kind === 'aerial' ? 0.7 : 1.0;
+    const k = 1 - Math.exp(-dt * rate);
     want.set(...pose.pos);
     if (shot.kind !== 'aerial') { // gentle handheld breathing
       want.x += Math.sin(now * 1.3) * 0.05; want.y += Math.sin(now * 1.9) * 0.04;
     }
-    camera.position.lerp(want, k);
+    const maxMove = (shot.kind === 'follow' ? 30 : 16) * dt, maxLook = 16 * dt;
+    step.copy(want).sub(camera.position).multiplyScalar(k);
+    if (step.length() > maxMove) step.setLength(maxMove);
+    camera.position.add(step);
     avoidBuildings(camera.position);
-    look.current.lerp(tmp.set(...pose.look), k * 1.4);
+    step.set(...pose.look).sub(look.current).multiplyScalar(k);
+    if (step.length() > maxLook) step.setLength(maxLook);
+    look.current.add(step);
     camera.lookAt(look.current);
     const cam = camera as THREE.PerspectiveCamera;
     const fov = FOV[shot.kind];

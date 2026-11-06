@@ -78,6 +78,11 @@ export class Resident {
     this.root.add(this.umbrella);
     this.play('Idle');
   }
+  /** 0..1: how much of the rigged model shows (fades in when it takes over from the light figure) */
+  fade = 0;
+  private mats: THREE.MeshStandardMaterial[] = [];
+  private prevState = 0;
+  private standLeft = 0;
   play(name: string, fade = 0.25): void {
     if (this.current === name || !this.actions[name]) return;
     const next = this.actions[name];
@@ -85,11 +90,22 @@ export class Resident {
     if (this.current) this.actions[this.current]?.fadeOut(fade);
     this.current = name;
   }
+  setFade(a: number): void {
+    this.fade = a;
+    if (!this.mats.length) this.root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) this.mats.push(m.material as THREE.MeshStandardMaterial); });
+    for (const m of this.mats) { m.opacity = a; m.transparent = a < 0.995; }
+  }
   /** state: 0 idle, 1 walk, 2 sit, 3 talk. speed in world units per real second. */
   update(dt: number, state: number, speed: number, umbrella: boolean): void {
-    if (state === 1) { this.play('Walk', 0.2); this.actions.Walk.timeScale = THREE.MathUtils.clamp(speed / 1.55, 0.45, 3); }
-    else if (state === 2) this.play('SitDown', 0.35);
-    else this.play('Idle', 0.35);
+    if (this.prevState === 2 && state !== 2 && this.actions.StandUp) this.standLeft = this.actions.StandUp.getClip().duration * 0.8;
+    this.prevState = state;
+    if (this.standLeft > 0 && state !== 1) { this.standLeft -= dt; this.play('StandUp', 0.2); this.actions.StandUp.setLoop(THREE.LoopOnce, 1); this.actions.StandUp.clampWhenFinished = true; }
+    else if (state === 1) {
+      this.standLeft = 0;
+      this.play('Walk', 0.3);
+      this.actions.Walk.timeScale = THREE.MathUtils.clamp(speed / 1.55, 0.5, 2.6);
+    } else if (state === 2) this.play('SitDown', 0.4);
+    else this.play('Idle', 0.4);
     this.umbrella.visible = umbrella;
     this.mixer.update(dt);
   }

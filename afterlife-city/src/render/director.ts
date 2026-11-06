@@ -15,7 +15,7 @@ export interface Shot {
   locationId?: string;
   fixedPos?: V3;
   look?: V3;
-  style?: 'sea' | 'harbor' | 'lamp' | 'rain' | 'lookout' | 'rooftops' | 'bay';
+  style?: 'sea' | 'harbor' | 'lamp' | 'rain' | 'lookout' | 'rooftops' | 'bay' | 'terrace' | 'promenade';
 }
 
 export interface DirectorState { current: Shot | null; startedAt: number; history: ShotKind[]; shownEvents: Set<string> }
@@ -87,8 +87,8 @@ export function chooseShot(w: WorldState, d: DirectorState, spotlight: string | 
       break;
     }
     case 'ambient': {
-      const styles: Shot['style'][] = ['sea', 'harbor', 'lookout', 'rooftops', 'bay'];
-      if (golden) styles.push('rooftops', 'bay', 'bay');           // postcard views: over the roofs to the sea, and back from the bay
+      const styles: Shot['style'][] = ['sea', 'harbor', 'lookout', 'rooftops', 'bay', 'terrace', 'promenade'];
+      if (golden) styles.push('rooftops', 'bay', 'terrace', 'promenade', 'promenade');           // postcard views: over the roofs to the sea, and back from the bay
       if (night) styles.push('lamp', 'lamp', 'bay');
       if (w.env.weather === 'rain') styles.push('rain', 'rain', 'rain');
       const style = styles[Math.floor(rand(w) * styles.length)]!;
@@ -100,8 +100,10 @@ export function chooseShot(w: WorldState, d: DirectorState, spotlight: string | 
         rain: { p: [-10, 3, 6], l: [-40, 2, -4] },
         rooftops: { p: [-36, 38, -98], l: [4, 0, 58] },
         bay: { p: [72, 26, 142], l: [-14, 6, -18] },
+        terrace: { p: [-37.8, 3.0, -3.5], l: [-47, 1.8, -9.5] },
+        promenade: { p: [-14, 2.8, 43], l: [-48, 2.4, 48] },
       };
-      shot = { kind, label: LABEL.ambient, ttl: style === 'rooftops' || style === 'bay' ? 16 : 10, style, fixedPos: poses[style].p, look: poses[style].l };
+      shot = { kind, label: LABEL.ambient, ttl: style === 'rooftops' || style === 'bay' || style === 'terrace' || style === 'promenade' ? 16 : 10, style, fixedPos: poses[style].p, look: poses[style].l };
       break;
     }
     default:
@@ -162,7 +164,7 @@ export function poseFor(w: WorldState, shot: Shot, t: number, clock: number, ctx
     }
     default: {
       const p = shot.fixedPos!, l = shot.look!;
-      if (shot.style === 'rooftops' || shot.style === 'bay') { // a slow, wide crane move across the view
+      if (shot.style === 'rooftops' || shot.style === 'bay' || shot.style === 'terrace' || shot.style === 'promenade') { // a slow, wide crane move across the view
         const k = Math.min(t, 16) / 16, side = shot.style === 'bay' ? -1 : 1;
         return { pos: [p[0] + side * (k - 0.5) * 22, p[1] - k * 4, p[2]], look: [l[0] + side * (k - 0.5) * 10, l[1], l[2]] };
       }
