@@ -1,5 +1,6 @@
 // Decorative vehicles (CC0 models by Quaternius): parked cars, a bus that loops the town on a timetable and
 // stops for anyone in front of it, and sailboats out on the bay. Visual only: the simulation knows nothing of them.
+import { loadGltf } from '../modelExt';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -32,7 +33,7 @@ function floatCopy(src: THREE.BufferGeometry): THREE.BufferGeometry {
 
 /** Loads a model and bakes a transform: on y=0, centred, nose towards +z, at the target length. */
 async function loadGeometry(name: VName): Promise<THREE.BufferGeometry> {
-  const g = await loader.loadAsync(new URL(`assets/vehicles/${name}.glb`, document.baseURI).href);
+  const g = await loadGltf(loader, `assets/vehicles/${name}`);
   let out: THREE.BufferGeometry | null = null;
   g.scene.updateMatrixWorld(true);
   g.scene.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh && !out) { out = floatCopy(m.geometry); out.applyMatrix4(m.matrixWorld); } });

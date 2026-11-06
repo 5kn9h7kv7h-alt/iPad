@@ -1,5 +1,6 @@
 // High-detail residents: rigged CC0 characters (Quaternius) with real walk / idle / sit animations.
 // Only the residents nearest to the camera use them; everybody else keeps the light instanced figure.
+import { loadGltf } from '../modelExt';
 import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
@@ -7,17 +8,16 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
 import type { ModelName } from './models';
 
 const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-const url = (f: string) => new URL(`assets/characters/${f}`, document.baseURI).href;
 const models = new Map<ModelName, Promise<GLTF>>();
 let clipsP: Promise<THREE.AnimationClip[]> | null = null;
 
 export function loadClips(): Promise<THREE.AnimationClip[]> {
-  if (!clipsP) clipsP = loader.loadAsync(url('anims.glb')).then(g => g.animations);
+  if (!clipsP) clipsP = loadGltf(loader, 'assets/characters/anims').then(g => g.animations);
   return clipsP;
 }
 export function loadModel(name: ModelName): Promise<GLTF> {
   let p = models.get(name);
-  if (!p) { p = loader.loadAsync(url(`${name}.glb`)); models.set(name, p); }
+  if (!p) { p = loadGltf(loader, `assets/characters/${name}`); models.set(name, p); }
   return p;
 }
 

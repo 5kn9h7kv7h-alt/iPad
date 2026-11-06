@@ -68,6 +68,7 @@ UI (src/ui, Zustand)
 `npm run test:e2e:a` / `npm run test:e2e:b` で描画命令数・三角形数の上限（iPhone標準: 150 / 30万、軽量: 100 / 15万）と回帰を確認します。
 `tests/audit.test.ts` は建物・小物・木・植え込み・道路の重なりと、全ての歩行経路が建物を通らないことを、`tests/walk.test.ts` は2日間の歩行が車道・建物内に入らないことを、`tests/vehicles.test.ts` は車とバスが車道上にあり建物・小物・歩行経路と交わらないことを検査します。
 `npm run build && node tests/e2e/lookdev.mjs --tier mid --ref <参考画像>` で参考画と同じ8構図を撮影し、並べた比較画像を作ります。
+公開ページ用は `VITE_MODEL_EXT=json npx vite build --base=./` でビルドし、`.glb` を `{"glb": "<base64>"}` の `.json` に詰め替えます（ホストがバイナリのモデルを配信しないため）。
 
 ## 実装範囲（仕様 9. MVP）
 
