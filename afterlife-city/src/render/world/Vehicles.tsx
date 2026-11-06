@@ -64,7 +64,7 @@ export function Vehicles({ shadows }: { shadows: boolean }) {
   const parked = useMemo(() => parkedCars(sim.world), []);
   const path = useMemo(() => busPath(sim.world), []);
   const bus = useRef<THREE.Mesh>(null);
-  const st = useRef({ d: 0, yaw: 0, init: false }); // d: distance travelled from the stop on this run
+  const st = useRef({ d: 0, v: 0, yaw: 0, init: false, fin: false, lastTime: 0 }); // d: distance travelled from the stop on this run, v: speed
   const boats = useRef<(THREE.Mesh | null)[]>([]);
 
   useFrame(({ clock }, dtRaw) => {
@@ -73,21 +73,31 @@ export function Vehicles({ shadows }: { shadows: boolean }) {
     const s = st.current;
     if (bus.current) {
       const target = busScheduled(minuteOfDay(w.time + interp.frac), path.total);
-      if (!s.init || Math.abs(target - s.d) > 80 || (target < s.d && s.d > path.total - 1)) s.d = target; // new run, or time jumped
-      else if (target > s.d && dt > 0) {
+      const jumped = Math.abs(w.time - s.lastTime) > 5; // the clock was set, not played
+      s.lastTime = w.time;
+      if (!s.init || jumped) { s.d = target; s.v = 0; s.fin = false; }
+      else if (dt > 0) {
+        if (target + 5 < s.d) s.fin = true; // a new hour began while the bus is still on its round: let it finish, no jumping back
+        const goal = s.fin ? path.total : target;
         const here = alongBus(path, path.stopS + s.d), fx = Math.sin(here.yaw), fz = Math.cos(here.yaw);
         let blocked = false; // wait for anyone in front of the bus
         for (const r of renderPos.values()) {
           if (!r.visible) continue;
-          const dx = r.x - here.x, dz = r.z - here.z, ahead = dx * fx + dz * fz, side = Math.abs(dx * fz - dz * fx);
-          if (ahead > 3 && ahead < 10 && side < 2.4) { blocked = true; break; }
+          const dx = r.x + r.ox - here.x, dz = r.z + r.oz - here.z, ahead = dx * fx + dz * fz, side = Math.abs(dx * fz - dz * fx);
+          if (ahead > 2 && ahead < 11 && side < 2.4) { blocked = true; break; }
         }
-        if (!blocked) s.d = Math.min(target, s.d + BUS.speed * 1.5 * dt); // catches up a little after waiting
+        // ease up to speed and brake gently; catch up a little after a wait
+        const want = blocked ? 0 : s.d >= goal ? BUS.speed : BUS.speed * 1.4;
+        const rate = want > s.v ? 5 : 12;
+        s.v += Math.sign(want - s.v) * Math.min(Math.abs(want - s.v), rate * dt);
+        s.d = Math.min(goal, s.d + s.v * dt);
+        if (s.d >= goal) s.v = Math.min(s.v, BUS.speed);
+        if (s.fin && s.d >= path.total) { s.d = 0; s.fin = false; } // back at the stop: same place on the loop
       }
       const p = alongBus(path, path.stopS + s.d);
       if (!s.init) { s.yaw = p.yaw; s.init = true; }
       let d = p.yaw - s.yaw; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
-      s.yaw += d * Math.min(1, dt * 1.6);
+      s.yaw += d * Math.min(1, dtRaw * 10); // only evens out the tiny steps between arc samples
       bus.current.position.set(p.x, ROAD_Y, p.z);
       bus.current.rotation.y = s.yaw;
     }

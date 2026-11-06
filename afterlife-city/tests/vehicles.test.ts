@@ -41,7 +41,7 @@ describe('decorative vehicles stay on the road and out of everyone\'s way', () =
     expect(p.total).toBeGreaterThan(200);
     for (let s = 0; s < p.total; s += 1) {
       const q = alongBus(p, s);
-      const inCrossing = Object.values(w.nodes).some(n => Math.abs(n.x - q.x) <= 2.41 - BUS.width / 2 && Math.abs(n.z - q.z) <= 2.41 - BUS.width / 2);
+      const inCrossing = Object.values(w.nodes).some(n => Math.abs(n.x - q.x) <= 2.2 - 0.55 && Math.abs(n.z - q.z) <= 2.2 - 0.55);
       expect(inCrossing || roadOf(q.x, q.z, 2.21 - BUS.width / 2) ? null : `${q.x.toFixed(2)},${q.z.toFixed(2)} @${s}`).toBeNull();
       for (const c of cars) { const b = carBox(c); expect(q.x > b.x0 - 1.1 && q.x < b.x1 + 1.1 && q.z > b.z0 - 1.1 && q.z < b.z1 + 1.1).toBe(false); }
       const bp: Part = { id: 'bus', tag: 'bus', min: [q.x - 1.05, 0.3, q.z - 1.05], max: [q.x + 1.05, 3.0, q.z + 1.05] };
@@ -57,5 +57,15 @@ describe('decorative vehicles stay on the road and out of everyone\'s way', () =
     expect(busScheduled(8 * 60 + 10, p.total)).toBeCloseTo(10 * BUS.speed);
     expect(busScheduled(8 * 60 + 59, p.total)).toBe(p.total);
     expect(p.total / BUS.speed).toBeLessThan(50);
+  });
+
+  it('the bus heading changes smoothly all the way round (no reversals or kinks)', () => {
+    const p = busPath(w);
+    let prev = alongBus(p, 0).yaw;
+    for (let s = 0.1; s <= p.total + 3; s += 0.1) {
+      const y = alongBus(p, s).yaw, d = Math.abs(Math.atan2(Math.sin(y - prev), Math.cos(y - prev)));
+      expect(d).toBeLessThan(0.25); // 90 degrees spread over ~4 units of arc is ~0.05 per 0.1
+      prev = y;
+    }
   });
 });

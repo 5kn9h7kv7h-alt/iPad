@@ -41,15 +41,27 @@ export interface BusPath { pts: { x: number; z: number }[]; acc: number[]; total
 export function busPath(w: WorldState): BusPath {
   const P = BUS.loop.map(id => w.nodes[id]);
   const pts: { x: number; z: number }[] = [];
-  const cut = 1.5; // round the corners a little, without mounting the kerb on the inside of a turn
-  for (let i = 0; i < P.length; i++) {
+  const cut = 2.4, STEPS = 8; // corners are quadratic arcs, so the heading turns smoothly
+  const leg = (i: number) => {
     const a = P[i], b = P[(i + 1) % P.length];
     const len = Math.hypot(b.x - a.x, b.z - a.z), fx = (b.x - a.x) / len, fz = (b.z - a.z) / len, rx = -fz, rz = fx;
-    pts.push({ x: a.x + rx * BUS.lane + fx * cut, z: a.z + rz * BUS.lane + fz * cut }, { x: b.x + rx * BUS.lane - fx * cut, z: b.z + rz * BUS.lane - fz * cut });
+    return { a: { x: a.x + rx * BUS.lane, z: a.z + rz * BUS.lane }, b: { x: b.x + rx * BUS.lane, z: b.z + rz * BUS.lane }, fx, fz };
+  };
+  for (let i = 0; i < P.length; i++) {
+    const L = leg(i), N = leg((i + 1) % P.length);
+    if (i === 0) pts.push({ x: L.a.x + L.fx * cut, z: L.a.z + L.fz * cut }); // later legs begin where the previous arc ended
+    const node = P[(i + 1) % P.length], p0 = { x: L.b.x - L.fx * cut, z: L.b.z - L.fz * cut }, c = { x: L.b.x + N.a.x - node.x, z: L.b.z + N.a.z - node.z }, p1 = { x: N.a.x + N.fx * cut, z: N.a.z + N.fz * cut };
+    for (let k = 0; k < (i === P.length - 1 ? STEPS : STEPS + 1); k++) { // the last arc ends at pts[0]
+      const t = k / STEPS, u = 1 - t;
+      pts.push({ x: u * u * p0.x + 2 * u * t * c.x + t * t * p1.x, z: u * u * p0.z + 2 * u * t * c.z + t * t * p1.z });
+    }
   }
   const acc = [0];
   for (let i = 1; i <= pts.length; i++) { const p = pts[i - 1], q = pts[i % pts.length]; acc.push(acc[i - 1] + Math.hypot(q.x - p.x, q.z - p.z)); }
-  return { pts, acc, total: acc[acc.length - 1], stopS: Math.abs(pts[0].x - BUS.stopX) };
+  // distance (along the loop from pts[0]) at which the bus is beside the shelter on the first leg
+  let stopS = 0;
+  for (let i = 1; i < pts.length; i++) if (pts[i].x <= BUS.stopX) { stopS = acc[i - 1] + Math.abs(pts[i - 1].x - BUS.stopX); break; }
+  return { pts, acc, total: acc[acc.length - 1], stopS };
 }
 
 export function alongBus(path: BusPath, s: number): { x: number; z: number; yaw: number } {
