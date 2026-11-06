@@ -2,7 +2,7 @@
 // These keep the city alive even when AI is switched off.
 import { chance, clamp, pick, rand, randInt } from './rng';
 import { dateOf, dayOf, hourOf, minuteOfDay, seasonOf } from './clock';
-import { createCitizen, makeBuilding, seedRelationshipsFor, type CSpec } from './world';
+import { createCitizen, fitCommute, makeBuilding, seedRelationshipsFor, type CSpec } from './world';
 import { isWorkDay, inSleepWindow, startPlan } from './behavior';
 import { consolidateMemories, logEvent, remember } from './log';
 import { converse, getRel } from './social';
@@ -255,6 +255,7 @@ function immigrate(w: WorldState): boolean {
   c.movedInAt = w.time;
   c.currentLocation = home.id; c.x = home.x; c.z = home.z;
   w.citizens[c.id] = c;
+  fitCommute(w, c);
   seedRelationshipsFor(w, c, 2);
   const ev = logEvent(w, {
     category: 'relationship', locationId: home.id, people: [c.id], importance: 50, historic: true,
@@ -364,6 +365,7 @@ function completeConstruction(w: WorldState, pid: string): void {
   for (const c of hires) {
     c.workplaceId = id; c.occupation = spec.job; c.currentGoal = '新しい職場に馴染む';
     c.dailyRoutine = { ...c.dailyRoutine, leaveHome: spec.hours[0] * 60 - 30, workStart: spec.hours[0] * 60, workEnd: spec.hours[1] * 60 };
+    fitCommute(w, c);
   }
   const ev = logEvent(w, {
     category: 'commerce', locationId: id, people: hires.map(c => c.id), importance: 62, historic: true,
@@ -397,7 +399,7 @@ const isBusy = (w: WorldState, c: Citizen) => {
 export function processScheduled(w: WorldState): void {
   for (const s of w.scheduled) {
     if (s.done) continue;
-    if (!s.invited && w.time >= s.startAt - 45) invite(w, s);
+    if (!s.invited && w.time >= s.startAt - 100) invite(w, s); // walking takes time: invite well ahead
     if (s.invited && !s.started && w.time >= s.startAt) begin(w, s);
     if (w.time >= s.endAt) s.done = true;
   }

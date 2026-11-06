@@ -2,8 +2,8 @@
 // the vertex shader swings them, so 30 animated residents cost a single instanced draw call.
 import * as THREE from 'three';
 
-export const SLOT = { skin: 0, hair: 1, top: 2, bottom: 3, shoe: 4 } as const;
-export const PART = { body: 0, legL: 1, legR: 2, armL: 3, armR: 4 } as const;
+export const SLOT = { skin: 0, hair: 1, top: 2, bottom: 3, shoe: 4, umbrella: 5 } as const;
+export const PART = { body: 0, legL: 1, legR: 2, armL: 3, armR: 4, umbrella: 5 } as const;
 
 export function characterGeometry(): THREE.BufferGeometry {
   type Piece = { g: THREE.BufferGeometry; slot: number; part: number; pivot: [number, number, number] };
@@ -28,6 +28,11 @@ export function characterGeometry(): THREE.BufferGeometry {
   const head = new THREE.SphereGeometry(0.135, 12, 10); head.translate(0, 1.68, 0); add(head, SLOT.skin, PART.body);
   const hair = new THREE.SphereGeometry(0.15, 12, 8, 0, Math.PI * 2, 0, Math.PI / 1.75); hair.translate(0, 1.7, -0.012); add(hair, SLOT.hair, PART.body);
 
+  // umbrella (only shown in the rain; held in the right hand)
+  const stick = cyl(0.016, 0.016, 1.0, 0.25, 1.55, 0.36, 5); add(stick, SLOT.shoe, PART.umbrella);
+  const canopy = new THREE.ConeGeometry(0.66, 0.32, 8, 1, true); canopy.translate(0.2, 2.15, 0.3); add(canopy, SLOT.umbrella, PART.umbrella);
+  const canopyIn = new THREE.ConeGeometry(0.64, 0.3, 8, 1, true); canopyIn.rotateX(Math.PI); canopyIn.translate(0.2, 2.13, 0.3); add(canopyIn, SLOT.umbrella, PART.umbrella);
+
   let total = 0; for (const p of pieces) total += p.g.attributes.position.count;
   const pos = new Float32Array(total * 3), nor = new Float32Array(total * 3), slot = new Float32Array(total), part = new Float32Array(total), pivot = new Float32Array(total * 3);
   let o = 0;
@@ -47,7 +52,7 @@ export function characterGeometry(): THREE.BufferGeometry {
 export const animUniforms = { uTime: { value: 0 } };
 
 export function characterMaterial(): THREE.MeshStandardMaterial {
-  const m = new THREE.MeshStandardMaterial({ roughness: 0.85 });
+  const m = new THREE.MeshStandardMaterial({ roughness: 0.85, side: THREE.DoubleSide });
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, animUniforms);
     sh.vertexShader = sh.vertexShader
@@ -60,6 +65,7 @@ uniform float uTime; varying vec3 vCol;`)
   float st = iAnim.x, ph = iAnim.y, amp = iAnim.z;
   float sw = sin(ph);
   float ang = 0.0;
+  bool umb = iAnim.w > 0.5;
   if (st < 1.5) { // idle / walk
     float k = st > 0.5 ? amp : 0.0;
     if (aPart > 0.5 && aPart < 1.5) ang = sw * 0.75 * k;
@@ -74,7 +80,9 @@ uniform float uTime; varying vec3 vCol;`)
     if (aPart > 3.5) ang = -1.15 + sin(uTime * 4.0 + ph) * 0.4;
     else if (aPart > 2.5 && aPart < 3.5) ang = -0.25 + sin(uTime * 2.3 + ph) * 0.15;
   }
-  if (aPart > 0.5) {
+  if (umb && aPart > 3.5 && aPart < 4.5) ang = -0.85;            // right hand holds the umbrella
+  if (aPart > 4.5 && !umb) transformed = vec3(0.0, -40.0, 0.0);  // umbrella hidden when dry
+  if (aPart > 0.5 && aPart < 4.5) {
     vec3 q = transformed - aPivot;
     float c = cos(ang), s = sin(ang);
     q = vec3(q.x, q.y * c - q.z * s, q.y * s + q.z * c);
@@ -82,7 +90,7 @@ uniform float uTime; varying vec3 vCol;`)
   }
   if (st > 1.5 && st < 2.5) transformed.y -= 0.45;
   transformed.y += st > 0.5 && st < 1.5 ? abs(sw) * 0.05 * amp : sin(uTime * 1.7 + ph) * 0.006;
-  vCol = aSlot < 0.5 ? iSkin : aSlot < 1.5 ? iHair : aSlot < 2.5 ? iTop : aSlot < 3.5 ? iBottom : vec3(0.075, 0.065, 0.06);
+  vCol = aSlot < 0.5 ? iSkin : aSlot < 1.5 ? iHair : aSlot < 2.5 ? iTop : aSlot < 3.5 ? iBottom : aSlot < 4.5 ? vec3(0.075, 0.065, 0.06) : mix(iBottom, vec3(0.2, 0.22, 0.25), 0.35);
 `);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vCol;')

@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { sim } from '../../store/game';
-import type { Season } from '../../sim/types';
+import type { Season, WorldState } from '../../sim/types';
+import { frontYaw } from '../../sim/doors';
+import { inBuilding, onStreet } from '../buildings/space';
 
 // ---------------------------------------------------------------- crowns (3 species) + trunks: 4 instanced draws, wind-swayed in the vertex shader
 function crownGeo(kind: 'pine' | 'round' | 'cypress', detail: 0 | 1 = 1): THREE.BufferGeometry {
@@ -40,27 +42,53 @@ function swayMaterial(): THREE.MeshStandardMaterial {
 
 interface Tree { x: number; z: number; s: number; kind: 0 | 1 | 2; r: number }
 
-export function makeTrees(): Tree[] {
+export function makeTrees(): Tree[] { return makeTreesFor(sim.world); }
+
+export function makeTreesFor(world: WorldState): Tree[] {
   const out: Tree[] = [];
   let seed = 424242;
   const r = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
-  const park = sim.world.buildings['b_park'];
+  const park = world.buildings['b_park'];
   for (let i = 0; i < 16; i++) out.push({ x: park.x + (r() - 0.5) * (park.w - 2), z: park.z + (r() - 0.5) * (park.d - 2), s: 0.9 + r() * 0.5, kind: 1, r: r() });
   for (let i = 0; i < 90; i++) out.push({ x: -100 + r() * 200, z: -92 + r() * 52, s: 0.9 + r() * 1.1, kind: r() < 0.55 ? 0 : r() < 0.7 ? 2 : 1, r: r() });
   for (let i = 0; i < 34; i++) out.push({ x: -92 + r() * 20, z: -26 + r() * 52, s: 0.8 + r(), kind: r() < 0.5 ? 1 : 2, r: r() });
   for (let i = 0; i < 26; i++) out.push({ x: 80 + r() * 20, z: -52 + r() * 80, s: 0.9 + r(), kind: r() < 0.6 ? 1 : 0, r: r() });
   for (let i = 0; i < 40; i++) out.push({ x: 8 + r() * 66, z: -34 + r() * 50, s: 0.8 + r() * 0.7, kind: r() < 0.7 ? 1 : 2, r: r() }); // residential street trees
-  const solid = Object.values(sim.world.buildings).filter(b => !['plaza', 'beach'].includes(b.kind));
+  const solid = Object.values(world.buildings).filter(b => !['plaza', 'beach'].includes(b.kind));
   const rows = [-30, 0, 30], cols = [-60, -40, -20, 10, 35, 60];
   return out.filter(t => {
     if (solid.some(b => Math.abs(b.x - t.x) < b.w / 2 + 3 && Math.abs(b.z - t.z) < b.d / 2 + 3)) return false;
-    if (sim.world.lots.some(l => Math.abs(l.x - t.x) < l.w / 2 + 2 && Math.abs(l.z - t.z) < l.d / 2 + 2)) return false;
+    if (world.lots.some(l => Math.abs(l.x - t.x) < l.w / 2 + 2 && Math.abs(l.z - t.z) < l.d / 2 + 2)) return false;
     if (rows.some(z => Math.abs(t.z - z) < 5 && t.x > -64 && t.x < 64) || cols.some(x => Math.abs(t.x - x) < 5 && t.z > -34 && t.z < 34)) return false;
     if (t.z > 31 && t.x < -17) return false;     // harbor
     if (t.z > 40) return false;                   // beach / sea
     if (Math.abs(t.z + 35) < 4 && t.x > -64 && t.x < 64) return false;
     return true;
   });
+}
+
+export function makeBushesFor(w: WorldState): { x: number; z: number; s: number; r: number }[] {
+  const out: { x: number; z: number; s: number; r: number }[] = [];
+  let seed = 99; const r = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+  const ok = (x: number, z: number, rad: number) => !onStreet(w, x, z, rad) && !inBuilding(w, x, z, rad);
+  for (const b of Object.values(w.buildings)) {
+    if (b.kind === 'house' || b.kind === 'cafe' || b.kind === 'shop' || b.kind === 'bookstore') {
+      // a hedge along the back wall (the side away from the street)
+      const yaw = frontYaw(b, w);
+      for (let i = 0; i < 3; i++) {
+        const s = 0.7 + r() * 0.5;
+        const lx = (r() - 0.5) * (Math.abs(Math.sin(yaw)) > 0.5 ? b.d : b.w) * 0.8, lz = -(Math.abs(Math.sin(yaw)) > 0.5 ? b.w : b.d) / 2 - 0.4 - 0.8 * s;
+        const c = Math.cos(yaw), sn = Math.sin(yaw);
+        const x = b.x + lx * c + lz * sn, z = b.z - lx * sn + lz * c;
+        if (ok(x, z, 0.8 * s)) out.push({ x, z, s, r: r() });
+      }
+    }
+    if (b.kind === 'park') for (let i = 0; i < 14; i++) {
+      const t = i / 14, x = b.x - b.w / 2 + 0.6 + t * (b.w - 1.2), z = b.z + (i % 2 ? b.d / 2 - 0.6 : -b.d / 2 + 0.6);
+      if (ok(x, z, 0.7)) out.push({ x, z, s: 0.8, r: r() });
+    }
+  }
+  return out;
 }
 
 const CROWN: Record<Season, string[]> = {
@@ -79,16 +107,7 @@ export function Vegetation({ scale, bushes, detail }: { scale: number; bushes: b
   const geos = useMemo(() => [crownGeo('pine', detail), crownGeo('round', detail), crownGeo('cypress', detail)], [detail]);
   const mats = useMemo(() => [swayMaterial(), swayMaterial(), swayMaterial()], []);
   const trunkGeo = useMemo(() => { const g = new THREE.CylinderGeometry(0.16, 0.26, 2.4, 6); g.translate(0, 1.2, 0); return g; }, []);
-  const bushList = useMemo(() => {
-    if (!bushes) return [] as { x: number; z: number; s: number; r: number }[];
-    const w = sim.world, out: { x: number; z: number; s: number; r: number }[] = [];
-    let seed = 99; const r = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
-    for (const b of Object.values(w.buildings)) {
-      if (b.kind === 'house' || b.kind === 'cafe' || b.kind === 'shop' || b.kind === 'bookstore') { for (let i = 0; i < 3; i++) out.push({ x: b.x + (r() - 0.5) * b.w, z: b.z - b.d / 2 - 0.5, s: 0.7 + r() * 0.5, r: r() }); }
-      if (b.kind === 'park') for (let i = 0; i < 14; i++) { const t = i / 14; out.push({ x: b.x - b.w / 2 + t * b.w, z: b.z + (i % 2 ? b.d / 2 : -b.d / 2) - (i % 2 ? 0.3 : -0.3), s: 0.8, r: r() }); }
-    }
-    return out;
-  }, [bushes]);
+  const bushList = useMemo(() => (bushes ? makeBushesFor(sim.world) : []), [bushes]);
   const lastSeason = useRef<Season | null>(null);
 
   useEffect(() => {

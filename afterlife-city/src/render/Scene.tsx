@@ -34,7 +34,10 @@ export function CityCanvas({ frameloop, tier }: { frameloop: 'always' | 'never';
       shadows={q.shadows} frameloop={frameloop} dpr={[1, q.dprMax]}
       camera={{ fov: 42, near: 0.5, far: 700, position: [0, 95, 120] }}
       gl={{ antialias: q.antialias, powerPreference: 'high-performance', preserveDrawingBuffer: false }}
-      onPointerMissed={() => { select(null); selectB(null); }}
+      onPointerMissed={() => {
+        const g = useGame.getState();
+        if (g.selectedCitizen || g.selectedBuilding) { select(null); selectB(null); } else g.toggleHud();
+      }}
     >
       <AtmosphereDriver />
       <SkyDome />
@@ -45,7 +48,7 @@ export function CityCanvas({ frameloop, tier }: { frameloop: 'always' | 'never';
       <Buildings />
       <Vegetation scale={q.treeScale} bushes={tier !== 'low'} detail={q.treeDetail} />
       <Boats />
-      <Citizens shadows={q.shadows} />
+      <Citizens />
       <Weather drops={q.rainDrops} drift={q.driftParticles} />
       <CameraRig />
       <StatsProbe />

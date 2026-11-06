@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import type { WorldState } from '../../sim/types';
 import type { Batch } from './batch';
 import { PAL } from './designs';
+import { clear } from './space';
 
 const ASPHALT = '#58534c', CURB = '#cdc2a8', PAINT = '#ece0b4';
 const HALF = 2.2, WALK = 1.2;
@@ -44,6 +45,12 @@ function lampPost(B: Batch, x: number, z: number, tall = 4.6): void {
   B.anchor('lamp', x, z, undefined, 'street');
 }
 
+/** Try candidate spots in order and build at the first one that is clear. */
+function place(B: Batch, w: WorldState, r: number, spots: [number, number][], build: (x: number, z: number) => void, tag: string): boolean {
+  for (const [x, z] of spots) if (clear(w, B.parts, x, z, r)) { B.tag = tag; build(x, z); B.tag = ''; return true; }
+  return false;
+}
+
 export function designStreet(B: Batch, w: WorldState): void {
   B.begin('street', 0, 0, 0);
   const nodes = Object.values(w.nodes);
@@ -78,10 +85,11 @@ export function designStreet(B: Batch, w: WorldState): void {
     // zebra crossings near both ends
     for (const [e, other] of [[n, m], [m, n]] as const) {
       const dx = Math.sign(other.x - e.x), dz = Math.sign(other.z - e.z);
-      const px = e.x + dx * (HALF + 1.4), pz = e.z + dz * (HALF + 1.4);
+      // centred on the line pedestrians actually cross on (sidewalk centre, 2.5–3.1 from the node)
+      const px = e.x + dx * (HALF + 0.65), pz = e.z + dz * (HALF + 0.65);
       for (let i = -3; i <= 3; i++) {
-        if (horiz) B.block(px, 0.12, pz + i * 0.58, 1.3, 0.01, 0.3, col(PAINT));
-        else B.block(px + i * 0.58, 0.12, pz, 0.3, 0.01, 1.3, col(PAINT));
+        if (horiz) B.block(px, 0.12, pz + i * 0.58, 1.05, 0.01, 0.3, col(PAINT));
+        else B.block(px + i * 0.58, 0.12, pz, 0.3, 0.01, 1.05, col(PAINT));
       }
     }
     // mid-segment lamps on alternating sides
@@ -89,11 +97,13 @@ export function designStreet(B: Batch, w: WorldState): void {
     for (let i = 1; i <= count; i++) {
       const t = i / (count + 1);
       const x = n.x + (m.x - n.x) * t, z = n.z + (m.z - n.z) * t;
-      const side = (i + hash(key)) % 2 ? 1 : -1;
-      lampPost(B, horiz ? x : x + side * (HALF + 0.8), horiz ? z + side * (HALF + 0.8) : z);
+      const side = (i + hash(key)) % 2 ? 1 : -1, off = HALF + WALK + 0.45;
+      const at = (sd: number): [number, number] => (horiz ? [x, z + sd * off] : [x + sd * off, z]);
+      place(B, w, 0.25, [at(side), at(-side)], (lx, lz) => lampPost(B, lx, lz), 'lamp');
     }
   }
-  for (const n of nodes) lampPost(B, n.x + HALF + 0.9, n.z + HALF + 0.9);
+  const corner = HALF + WALK + 0.45;
+  for (const n of nodes) place(B, w, 0.25, [[n.x + corner, n.z + corner], [n.x - corner, n.z + corner], [n.x + corner, n.z - corner], [n.x - corner, n.z - corner]], (x, z) => lampPost(B, x, z), 'lamp');
 
   // ---- per-building furniture (placed at each door anchor, mirrored into world space)
   const doors = B.anchors.filter(a => a.kind === 'door');
@@ -103,30 +113,41 @@ export function designStreet(B: Batch, w: WorldState): void {
     const tx = -nz, tz = nx, h = hash(b.id);
     const at = (f: number, s: number): [number, number] => [d.x + nx * f + tx * s, d.z + nz * f + tz * s];
     const yawAlong = Math.atan2(tx, tz);
-    if (['house', 'apartment', 'cafe', 'shop', 'bookstore', 'convenience'].includes(b.kind) && h % 3 !== 0) { const [x, z] = at(0.4, h % 2 ? 2.2 : -2.2); bike(B, x, z, yawAlong + (h % 5) * 0.1); }
-    if (['house', 'cafe', 'shop', 'bookstore', 'restaurant', 'apartment'].includes(b.kind)) { const [x, z] = at(0.3, h % 2 ? -1.5 : 1.5); pot(B, x, z, [PAL.golden, '#c4607a', '#e9e2cf', PAL.terracotta][h % 4]); }
-    if (['convenience', 'restaurant'].includes(b.kind) || b.id === 'b_station') { const [x, z] = at(0.6, -2.4); bin(B, x, z); }
-    if (b.kind === 'convenience') {
-      const [x, z] = at(0.5, 2.6);
-      B.frame(x, z, Math.atan2(nx, nz), () => { B.block(0, 0, 0, 0.9, 1.9, 0.75, col('#b8402f')); B.lamp(0, 1.2, 0.4, 0.3, '#cfe8ff'); });
-    }
+    const sides = h % 2 ? [1, -1] : [-1, 1];
+    if (['house', 'apartment', 'cafe', 'shop', 'bookstore', 'convenience'].includes(b.kind) && h % 3 !== 0)
+      place(B, w, 0.75, sides.flatMap(sd => [at(-0.3, sd * 2.2), at(-0.3, sd * 3.0)]), (x, z) => bike(B, x, z, yawAlong + (h % 5) * 0.1), 'bike');
+    if (['house', 'cafe', 'shop', 'bookstore', 'restaurant', 'apartment'].includes(b.kind))
+      place(B, w, 0.45, sides.flatMap(sd => [at(-0.5, -sd * 1.5), at(-0.5, -sd * 2.4)]), (x, z) => pot(B, x, z, [PAL.golden, '#c4607a', '#e9e2cf', PAL.terracotta][h % 4]), 'pot');
+    if (['convenience', 'restaurant'].includes(b.kind) || b.id === 'b_station')
+      place(B, w, 0.35, [at(-0.3, -2.4), at(-0.3, 2.4), at(-0.3, -3.2)], (x, z) => bin(B, x, z), 'bin');
+    if (b.kind === 'convenience')
+      place(B, w, 0.6, [at(-0.4, 2.6), at(-0.4, -2.8)], (x, z) => B.frame(x, z, Math.atan2(nx, nz), () => { B.block(0, 0, 0, 0.9, 1.9, 0.75, col('#b8402f')); B.lamp(0, 1.2, 0.4, 0.3, '#cfe8ff'); }), 'vending');
   }
 
   // ---- fixed public seating and plaza / park / lookout details
-  const put = (id: string, pts: [number, number, number][]) => { for (const [x, z, yaw] of pts) bench(B, x, z, yaw, id); };
+  const put = (id: string, pts: [number, number, number][]) => {
+    const a = w.buildings[id];
+    for (const [x, z, yaw] of pts) {
+      const tries: [number, number][] = [[x, z]];
+      if (a) for (let k = 1; k <= 4; k++) tries.push([x + (a.x - x) * 0.18 * k, z + (a.z - z) * 0.18 * k]);
+      place(B, w, 1.0, tries, (bx, bz) => bench(B, bx, bz, yaw, id), 'bench');
+    }
+  };
   const b = w.buildings;
   if (b.b_park) put('b_park', [[b.b_park.x - 5, b.b_park.z + 1.4, 0], [b.b_park.x + 5, b.b_park.z + 1.4, 0], [b.b_park.x - 2, b.b_park.z - 1.8, Math.PI], [b.b_park.x + 3, b.b_park.z - 1.8, Math.PI]]);
   if (b.b_plaza) put('b_plaza', [[b.b_plaza.x - 4, b.b_plaza.z - 1.4, Math.PI], [b.b_plaza.x + 4, b.b_plaza.z - 1.4, Math.PI], [b.b_plaza.x, b.b_plaza.z + 1.4, 0]]);
-  if (b.b_promenade) { const p = b.b_promenade; const pts: [number, number, number][] = []; for (let i = 0; i < 6; i++) pts.push([p.x - 15 + i * 6, p.z + 0.4, 0]); put('b_promenade', pts); for (let i = 0; i <= 8; i++) lampPost(B, p.x - 17 + i * 4.5, p.z - 1.2, 3.6); }
+  if (b.b_promenade) { const p = b.b_promenade; const pts: [number, number, number][] = []; for (let i = 0; i < 6; i++) pts.push([p.x - 15 + i * 6, p.z + 0.2, 0]); put('b_promenade', pts); for (let i = 0; i <= 8; i++) place(B, w, 0.25, [[p.x - 17 + i * 4.5, p.z + 1.6]], (x, z) => lampPost(B, x, z, 3.6), 'lamp'); }
   if (b.b_beach) put('b_beach', [[b.b_beach.x - 8, b.b_beach.z - 1.5, 0], [b.b_beach.x + 6, b.b_beach.z - 1.5, 0]]);
   if (b.b_lookout) put('b_lookout', [[b.b_lookout.x - 5, b.b_lookout.z + 2.2, 0], [b.b_lookout.x - 5, b.b_lookout.z - 2.2, 0]]);
-  if (b.b_plaza) { // bus stop shelter
-    const x = b.b_plaza.x + 13, z = b.b_plaza.z + 2.2;
-    B.block(x, 2.5, z, 4.4, 0.15, 1.8, col(PAL.slate));
-    for (const dx of [-2, 2]) B.block(x + dx, 0, z - 0.7, 0.12, 2.5, 0.12, col(PAL.slate));
-    B.block(x, 0.8, z - 0.8, 4.2, 1.5, 0.06, col('#9fb6bd'));
-    bench(B, x, z - 0.2, 0, 'b_plaza');
-    B.cyl(x + 3.0, 0, z + 0.3, 0.07, 3.0, col('#2c3036')); B.box(x + 3.0, 3.1, z + 0.3, 0.7, 0.5, 0.06, col(PAL.blue));
+  if (b.b_plaza) { // bus stop shelter at the east end of the station square, back from the curb
+    const spots: [number, number][] = [[b.b_plaza.x + 12, b.b_plaza.z - 1.4], [b.b_plaza.x + 12, b.b_plaza.z - 3.0], [b.b_plaza.x - 12, b.b_plaza.z - 2.0]];
+    place(B, w, 2.4, spots, (x, z) => {
+      B.block(x, 2.5, z, 4.4, 0.15, 1.8, col(PAL.slate));
+      for (const dx of [-2, 2]) B.block(x + dx, 0, z - 0.7, 0.12, 2.5, 0.12, col(PAL.slate));
+      B.block(x, 0.8, z - 0.8, 4.2, 1.5, 0.06, col('#9fb6bd'));
+      bench(B, x, z - 0.2, 0, 'b_plaza');
+      B.cyl(x + 2.6, 0, z + 0.6, 0.07, 3.0, col('#2c3036')); B.box(x + 2.6, 3.1, z + 0.6, 0.7, 0.5, 0.06, col(PAL.blue));
+    }, 'busstop');
   }
 
   // ---- harbor: bollards, crates, barrels, drying racks, piers
@@ -141,8 +162,19 @@ export function designStreet(B: Batch, w: WorldState): void {
   if (b.b_market) { const { x, z } = b.b_market; for (let i = 0; i < 4; i++) crate(B, x - 8 + i * 1.0, z + 6, 0.9, PAL.wood); barrel(B, x + 8, z + 6); }
 
   // ---- things the player has added (visual only; sim owns the data)
-  for (const p of w.props) {
-    const yaw = (hash(p.id) % 8) * (Math.PI / 4);
+  for (const p0 of w.props) {
+    const yaw = (hash(p0.id) % 8) * (Math.PI / 4);
+    const area = w.buildings[p0.buildingId];
+    let p = p0;
+    const r = p0.kind === 'playground' ? 2.2 : p0.kind === 'bench' ? 1.0 : 0.5;
+    if (!clear(w, B.parts, p0.x, p0.z, r) && area) {
+      for (let k = 1; k <= 8; k++) {
+        const a = k * 2.4, d = 0.8 + k * 0.5;
+        const x = Math.max(area.x - area.w / 2 + r, Math.min(area.x + area.w / 2 - r, p0.x + Math.cos(a) * d)), z = Math.max(area.z - area.d / 2 + r, Math.min(area.z + area.d / 2 - r, p0.z + Math.sin(a) * d));
+        if (clear(w, B.parts, x, z, r)) { p = { ...p0, x, z }; break; }
+      }
+    }
+    B.tag = 'prop';
     if (p.kind === 'bench') bench(B, p.x, p.z, yaw, p.buildingId, PAL.golden);
     else if (p.kind === 'plant') { B.cyl(p.x, 0, p.z, 0.5, 0.5, col(PAL.terracotta)); B.put('dome', [p.x, 0.5, p.z], [0.7, 0.8, 0.7], col(PAL.olive)); }
     else if (p.kind === 'streetlight') lampPost(B, p.x, p.z, 4.8);

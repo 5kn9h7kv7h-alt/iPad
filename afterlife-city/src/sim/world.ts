@@ -1,6 +1,7 @@
 import { rand, randInt, pick, clamp } from './rng';
 import { hm, seasonOf } from './clock';
 import { initialEnvironment, updateEnvironment } from './environment';
+import { laneOf, routeLength, routeTo, WALK_SPEED } from './paths';
 import type {
   AreaId, Building, BuildingKind, Citizen, Lot, Personality, RoadNode, Routine, WorldState,
 } from './types';
@@ -241,6 +242,17 @@ export function seedRelationshipsFor(w: WorldState, c: Citizen, randomCount = 3)
   for (let i = 0; i < randomCount && others.length; i++) mkRel(w, c, pick(w, others), 'acquaintance');
 }
 
+/** Leave home early enough to walk to work (walking is human-speed, so long commutes start earlier). */
+export function fitCommute(w: WorldState, c: Citizen): void {
+  if (!c.workplaceId || !c.dailyRoutine.workStart) return;
+  const home = w.buildings[c.homeId], work = w.buildings[c.workplaceId];
+  if (!home || !work) return;
+  const mins = routeLength(routeTo(w, home.x, home.z, home, work, 0.5, 0.5, laneOf(c.id))) / (WALK_SPEED * (0.85 + c.personality.activity / 300));
+  const r = c.dailyRoutine;
+  r.leaveHome = Math.min(r.leaveHome, Math.round(r.workStart - mins - 8));
+  if (r.leaveHome < r.wake + 35) r.wake = r.leaveHome - 35;
+}
+
 export function createWorld(seed = 20260401, startDate = '2026-04-01'): WorldState {
   const w: WorldState = {
     version: 1, seed, rngState: seed >>> 0, time: hm(5, 30), startDate,
@@ -252,6 +264,7 @@ export function createWorld(seed = 20260401, startDate = '2026-04-01'): WorldSta
   for (const s of BUILDING_SPECS) w.buildings[s.id] = makeBuilding(s, 0);
   CITIZEN_SPECS.forEach((spec, i) => { const c = createCitizen(w, spec, i); w.citizens[c.id] = c; w.counters.citizen++; });
   for (const c of Object.values(w.citizens)) seedRelationshipsFor(w, c, 3);
+  for (const c of Object.values(w.citizens)) fitCommute(w, c);
   w.env.season = seasonOf(startDate, w.time);
   updateEnvironment(w);
   w.env.weather = 'clear';

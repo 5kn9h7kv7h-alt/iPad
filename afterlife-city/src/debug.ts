@@ -1,6 +1,7 @@
 // Test/diagnostic harness, loaded only with ?debug. It is the ONLY place allowed to poke the simulation clock.
 import { sim, useGame } from './store/game';
 import { registry } from './render/registry';
+import { renderPos } from './render/citizens/Citizens';
 
 export function installDebug(): void {
   const hash = () => {
@@ -12,6 +13,8 @@ export function installDebug(): void {
   };
   (window as unknown as Record<string, unknown>).__afterlife = {
     sim, registry, hash,
+    /** rendered (interpolated) positions of visible residents */
+    positions: () => [...renderPos.entries()].filter(([, r]) => r.visible).map(([id, r]) => ({ id, x: r.x + r.ox, z: r.z + r.oz })),
     counts: () => ({
       citizens: Object.values(sim.world.citizens).filter(c => c.movedOutAt === undefined).length,
       buildings: Object.values(sim.world.buildings).filter(b => b.status !== 'demolished').length,

@@ -3,14 +3,15 @@
 import { chance, clamp, rand, randInt } from './rng';
 import { dateOf, dayOf, minuteOfDay } from './clock';
 import { INTEREST_PLACES } from './world';
-import { isOutdoor, routeTo } from './paths';
+import { isOutdoor, laneOf, routeTo, WALK_SPEED } from './paths';
+import { doorPoint } from './doors';
 import { relKey } from './world';
 import {
   ACTIVITY_LABEL, MINUTES_PER_DAY,
   type Activity, type Building, type BuildingKind, type Citizen, type Mood, type Plan, type WorldState,
 } from './types';
 
-export const WALK_SPEED = 22; // world units per sim minute
+export { WALK_SPEED };
 
 // ---------------------------------------------------------------- helpers
 export function isOpenAt(b: Building, t: number, margin = 0): boolean {
@@ -61,7 +62,7 @@ function memoryBias(c: Citizen, buildingId: string): number {
 
 /** Choose a destination among kinds; open, near, novel, liked, with props. */
 export function chooseBuilding(
-  w: WorldState, c: Citizen, kinds: BuildingKind[], margin = 30, exclude?: string,
+  w: WorldState, c: Citizen, kinds: BuildingKind[], margin = 30, exclude?: string, maxDist?: number,
 ): Building | null {
   const night = w.env.daylight < 0.25;
   const cands: { item: Building; weight: number }[] = [];
@@ -70,7 +71,8 @@ export function chooseBuilding(
   for (const b of Object.values(w.buildings)) {
     if (!kinds.includes(b.kind) || b.id === exclude || !isOpenAt(b, w.time, margin)) continue;
     const d = dist(fx, fz, b.x, b.z);
-    let wt = 1 / (1 + d / 45);
+    if (maxDist !== undefined && d > maxDist) continue;
+    let wt = 1 / (1 + Math.pow(d / 30, 1.5));
     const v = c.visits[b.id] ?? 0;
     wt *= 1 + (c.personality.curiosity / 100) * (v === 0 ? 0.8 : v < 3 ? 0.3 : 0);
     wt *= 1 + memoryBias(c, b.id);
@@ -103,7 +105,8 @@ export function startPlan(w: WorldState, c: Citizen, plan: Omit<Plan, 'until' | 
     return;
   }
   const from = buildingOf(w, c);
-  c.path = routeTo(w, c.x, c.z, from, dest, rand(w), rand(w));
+  if (from && !isOutdoor(from)) { const d = doorPoint(from, w); c.x = d.x; c.z = d.z; } // step out of the door
+  c.path = routeTo(w, c.x, c.z, from, dest, rand(w), rand(w), laneOf(c.id)).slice(1);
   c.activity = 'commute';
   c.currentLocation = 'street';
 }
@@ -193,7 +196,7 @@ export function decide(w: WorldState, c: Citizen): void {
       return;
     }
     // lunch break near the workplace
-    const place = chooseBuilding(w, c, ['restaurant', 'cafe', 'convenience', 'market'], 40);
+    const place = chooseBuilding(w, c, ['restaurant', 'cafe', 'convenience', 'market'], 40, undefined, 45);
     startPlan(w, c, { activity: 'eat', buildingId: (place ?? wp).id, duration: clampDur(30 + rand(w) * 15) });
     return;
   }
@@ -282,7 +285,9 @@ function findCompany(w: WorldState, c: Citizen): { building: Building; weight: n
     if (!isOpenAt(b, w.time, 20)) continue;
     const rel = w.relationships[relKey(c.id, o.id)];
     if (!rel || rel.tension > 55) continue;
-    const aff = (rel.familiarity * 0.4 + rel.friendship * 0.6) / 100;
+    const here = buildingOf(w, c);
+    const dd = Math.hypot((here?.x ?? c.x) - b.x, (here?.z ?? c.z) - b.z);
+    const aff = (rel.familiarity * 0.4 + rel.friendship * 0.6) / 100 / (1 + dd / 40);
     scores.set(b.id, (scores.get(b.id) ?? 0) + aff);
   }
   let best: Building | null = null, bw = 0;

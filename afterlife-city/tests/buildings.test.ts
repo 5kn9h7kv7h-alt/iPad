@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createWorld } from '../src/sim/world';
 import { advance } from '../src/sim/engine';
 import { buildCity } from '../src/render/buildings/city';
-import { litFractions } from '../src/render/buildings/Buildings';
+import { windowLight } from '../src/render/buildings/Buildings';
 import { proposeShop } from '../src/sim/interventions';
 
 describe('building geometry (V2)', () => {
@@ -50,10 +50,16 @@ describe('building geometry (V2)', () => {
     const n = buildCity(w3);
     expect(n.ranges.some(r => r.id.startsWith('b_n'))).toBe(true);
   });
-  it('windows light up in the evening, not at noon', () => {
-    expect(litFractions(12).home).toBe(0);
-    expect(litFractions(21).home).toBeGreaterThan(0.5);
-    expect(litFractions(3).home).toBeLessThan(0.15);
-    expect(litFractions(14).shop).toBeGreaterThan(litFractions(3).shop);
+  it('windows follow who is inside: lit when someone is home and awake, dark when asleep or closed', () => {
+    const w = createWorld();
+    const h = w.buildings['b_house4'];
+    for (const c of Object.values(w.citizens)) if (c.homeId === h.id) { c.currentLocation = h.id; c.activity = 'home'; }
+    expect(windowLight(w, h)).toBeGreaterThan(0.5);
+    for (const c of Object.values(w.citizens)) if (c.homeId === h.id) c.activity = 'sleep';
+    expect(windowLight(w, h)).toBeLessThan(0.1);
+    const cafe = w.buildings['b_cafe']; w.time = Math.floor(w.time / 1440) * 1440 + 23 * 60;
+    expect(windowLight(w, cafe)).toBeLessThan(0.1);
+    w.time = Math.floor(w.time / 1440) * 1440 + 12 * 60;
+    expect(windowLight(w, cafe)).toBeGreaterThan(0.9);
   });
 });

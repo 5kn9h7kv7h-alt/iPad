@@ -3,6 +3,8 @@
 import * as THREE from 'three';
 import type { Building, WorldState } from '../../sim/types';
 import { Batch } from './batch';
+import { clear } from './space';
+import { DOOR_X, frontYaw } from '../../sim/doors';
 
 export const PAL = {
   sand: '#d8c7a3', cream: '#efe3c8', terracotta: '#b8613f', golden: '#d9a441', blue: '#5f8a9a', olive: '#7a8250',
@@ -15,14 +17,7 @@ const ROOFS = [PAL.terracotta, PAL.slate, PAL.red, PAL.teal];
 const pickBy = <T,>(arr: T[], t: number, salt = 0): T => arr[Math.floor(((t * 97 + salt * 0.37) % 1) * arr.length) % arr.length];
 const grey = (c: string) => new THREE.Color(c).lerp(new THREE.Color('#8d8a84'), 0.75);
 
-/** Which local side faces the street the building is attached to. */
-export function frontYaw(b: Building, w: WorldState): number {
-  const n = w.nodes[b.nodeId];
-  if (!n) return 0;
-  const dx = n.x - b.x, dz = n.z - b.z;
-  if (Math.abs(dz) >= Math.abs(dx)) return dz >= 0 ? 0 : Math.PI;
-  return dx > 0 ? Math.PI / 2 : -Math.PI / 2;
-}
+export { frontYaw };
 
 function seedOf(b: Building): number { let h = 7; for (const ch of b.id) h = (h * 31 + ch.charCodeAt(0)) % 9973; return h; }
 
@@ -35,7 +30,7 @@ export function designBuilding(B: Batch, b: Building, w: WorldState): void {
   const closed = b.status === 'closed';
   const c = (hex: string) => (closed ? grey(hex) : new THREE.Color(hex));
   const wall = c(pickBy(WALLS, b.tint, seed)), roof = c(pickBy(ROOFS, b.tint, seed + 3));
-  const ctx: Ctx = { B, b, W, D, H, seed, wall, roof, closed, c };
+  const ctx: Ctx = { w, B, b, W, D, H, seed, wall, roof, closed, c };
   switch (b.kind) {
     case 'house': house(ctx); break;
     case 'apartment': apartment(ctx); break;
@@ -59,7 +54,7 @@ export function designBuilding(B: Batch, b: Building, w: WorldState): void {
   B.end();
 }
 
-interface Ctx { B: Batch; b: Building; W: number; D: number; H: number; seed: number; wall: THREE.Color; roof: THREE.Color; closed: boolean; c: (hex: string) => THREE.Color }
+interface Ctx { w: WorldState; B: Batch; b: Building; W: number; D: number; H: number; seed: number; wall: THREE.Color; roof: THREE.Color; closed: boolean; c: (hex: string) => THREE.Color }
 
 const foundation = ({ B, W, D, c }: Ctx) => B.block(0, 0, 0, W + 0.3, 0.35, D + 0.3, c(PAL.stone));
 const door = ({ B, D, c, closed }: Ctx, x: number, w = 1.1, h = 2.1, col: string = PAL.darkwood) => {
@@ -74,7 +69,7 @@ const shop = (ctx: Ctx) => {
   B.block(0, H, 0, W + 0.5, 0.35, D + 0.5, roof);                     // flat cornice roof
   B.block(0, H + 0.35, D / 2 + 0.1, W + 0.5, 0.5, 0.25, c(PAL.cream)); // parapet front
   B.block(-W * 0.18, 0.35, D / 2 + 0.04, W * 0.55, 2.1, 0.08, c('#51666b')); // display window recess
-  door(ctx, W * 0.32, 1.0, 2.1, PAL.darkwood);
+  door(ctx, W * DOOR_X.shop!, 1.0, 2.1, PAL.darkwood);
   B.windows(0, W, D, { floors: 1, cols: 2, y0: 0.5, floorH: 3, w: W * 0.2, h: 1.5, shop: 1, seed, skip: (_r, col) => col === 1 });
   awning(ctx, W, D, 2.8, PAL.blue);
   if (!closed) B.signBoard(b.name, '#e9dcc0', '#3a2f26', 0, H - 0.2, D / 2 + 0.35, Math.min(W * 0.8, 6), 0.8);
@@ -100,7 +95,7 @@ function house(ctx: Ctx) {
   const rise = Math.min(W, D) * 0.42;
   B.gable(0, H, 0, W + 0.9, D + 0.9, rise, roof, false);
   B.block(W * 0.22, H + rise * 0.4, -D * 0.12, 0.8, rise * 0.9, 0.8, c(PAL.stone)); // chimney
-  door(ctx, -W * 0.2, 1.0, 2.1, seed % 2 ? PAL.blue : PAL.terracotta);
+  door(ctx, W * DOOR_X.house!, 1.0, 2.1, seed % 2 ? PAL.blue : PAL.terracotta);
   B.block(-W * 0.2, 0.35, D / 2 + 0.7, 2.0, 0.15, 1.4, c(PAL.stone));                  // step
   B.windows(0, W, D, { floors: 1, cols: 3, y0: 0.5, floorH: 3, seed, skip: (_r, col) => col === 0 });
   B.windows(1, W, D, { floors: 1, cols: 3, y0: 0.5, floorH: 3, seed: seed + 2 });
@@ -146,7 +141,7 @@ function cafe(ctx: Ctx) {
   B.gable(0, H, 0, W + 0.7, D + 0.7, 1.7, roof, true);
   B.block(-W * 0.12, 0.35, D / 2 + 0.04, W * 0.6, 2.2, 0.08, c('#46605f'));
   B.windows(0, W, D, { floors: 1, cols: 3, y0: 0.45, floorH: 3, w: 1.2, h: 1.7, shop: 1, seed, skip: (_r, col) => col === 2 });
-  door(ctx, W * 0.34, 1.0, 2.1, PAL.teal);
+  door(ctx, W * DOOR_X.cafe!, 1.0, 2.1, PAL.teal);
   awning(ctx, W, D, 2.9, PAL.terracotta);
   if (!closed) {
     B.signBoard(b.name, '#3f2f25', '#f3e3c0', -W * 0.1, H - 0.25, D / 2 + 0.45, Math.min(W * 0.7, 5.5), 0.75, '#2a2019');
@@ -157,9 +152,18 @@ function cafe(ctx: Ctx) {
   B.windows(2, W, D, { floors: 1, cols: 1, y0: 0.6, floorH: 3, shop: 1, seed: seed + 3 });
 }
 /** Outdoor seating: also exported as 'seat' anchors so residents can later be tied to them. */
-function terrace({ B, W, D, c }: Ctx) {
-  const tables: [number, number][] = [[-W * 0.28, D / 2 + 2.4], [W * 0.12, D / 2 + 2.6]];
+function terrace({ w, B, b, W, D, c }: Ctx) {
+  // try the front, then either side, then the back: use the first spot that is off the street and clear of buildings
+  const options: [number, number][][] = [
+    [[-W * 0.28, D / 2 + 2.4], [W * 0.12, D / 2 + 2.6]],
+    [[W / 2 + 2.1, -D * 0.22], [W / 2 + 2.1, D * 0.25]],
+    [[-W / 2 - 2.1, -D * 0.22], [-W / 2 - 2.1, D * 0.25]],
+    [[-W * 0.22, -D / 2 - 2.2], [W * 0.22, -D / 2 - 2.2]],
+  ];
+  const tables = options.find(opt => opt.every(([x, z]) => { const [wx, wz] = B.toWorld(x, z); return clear(w, [], wx, wz, 1.35, b.id) && !inSelf(b, wx, wz, 1.35); }));
+  if (!tables) return;
   for (const [x, z] of tables) {
+    B.tag = 'terrace';
     B.cyl(x, 0.0, z, 0.06, 0.8, c(PAL.slate));
     B.put('cyl', [x, 0.82, z], [0.45, 0.06, 0.45], c(PAL.cream));
     for (const [dx, dz] of [[-0.7, 0], [0.7, 0], [0, -0.7], [0, 0.7]]) {
@@ -169,8 +173,10 @@ function terrace({ B, W, D, c }: Ctx) {
     }
     B.cyl(x, 0.8, z, 0.04, 1.5, c(PAL.white));
     B.put('hip', [x, 2.3, z], [2.3, 0.45, 2.3], c(PAL.terracotta));
+    B.tag = '';
   }
 }
+const inSelf = (b: Building, x: number, z: number, r: number) => Math.abs(x - b.x) < b.w / 2 + r && Math.abs(z - b.z) < b.d / 2 + r;
 
 function bookstore(ctx: Ctx) {
   const { B, W, D, H, c, closed, b, seed } = ctx;
@@ -179,7 +185,7 @@ function bookstore(ctx: Ctx) {
   B.block(0, 0.35, D / 2 + 0.03, W, 2.6, 0.08, c(PAL.wood));
   B.gable(0, H, 0, W + 0.6, D + 0.6, 2.0, c(PAL.slate), false);
   B.windows(0, W, D, { floors: 1, cols: 2, y0: 0.5, floorH: 3, w: 1.6, h: 1.5, shop: 1, seed, skip: (_r, col) => col === 1, frame: PAL.golden });
-  door(ctx, W * 0.28, 1.1, 2.2, PAL.olive);
+  door(ctx, W * DOOR_X.bookstore!, 1.1, 2.2, PAL.olive);
   B.block(-W * 0.2, 0.35, D / 2 + 0.55, 2.4, 0.9, 0.5, c(PAL.wood));                      // book cart
   B.block(-W * 0.2, 1.25, D / 2 + 0.55, 2.2, 0.35, 0.4, c(PAL.golden));
   if (!closed) {
@@ -305,7 +311,7 @@ function office(ctx: Ctx) {
   B.windows(0, W, D, { floors: 2, cols: 4, y0: 0.6, floorH: 2.2, w: 1.0, h: 1.1, seed, shop: 1, skip: (r, col) => r === 0 && col === 3 });
   B.windows(1, W, D, { floors: 2, cols: 4, y0: 0.6, floorH: 2.2, w: 1.0, h: 1.1, seed: seed + 5 });
   B.windows(2, W, D, { floors: 2, cols: 3, y0: 0.6, floorH: 2.2, w: 1.0, h: 1.1, seed: seed + 8 });
-  door(ctx, W * 0.37, 1.2, 2.1, PAL.navy);
+  door(ctx, W * DOOR_X.office!, 1.2, 2.1, PAL.navy);
   B.block(0, H + 0.4, 0, 0.1, 3.0, 0.1, c(PAL.slate));                     // flagpole
   B.block(0.55, H + 2.6, 0, 1.0, 0.6, 0.04, c(PAL.golden));
   if (!closed) B.signBoard(b.name, '#e9e2cf', '#2f4a5c', -W * 0.1, 3.2, D / 2 + 0.3, Math.min(W * 0.6, 5.5), 0.6, '#38454d');

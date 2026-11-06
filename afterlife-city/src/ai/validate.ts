@@ -49,7 +49,7 @@ export function validateProposal(w: WorldState, p: AiProposal): Verdict {
   const startIn = Math.round(p.startInMinutes ?? 120);
   const dur = Math.round(p.durationMinutes ?? (p.type === 'festival' ? 150 : 60));
   if (p.type === 'meetup' || p.type === 'festival') {
-    if (startIn < 60 || startIn > 48 * 60) return fail('開始時刻が範囲外（1〜48時間後）');
+    if (startIn < 120 || startIn > 48 * 60) return fail('開始時刻が範囲外（2〜48時間後）');
     if (dur < 20 || dur > 240) return fail('所要時間が範囲外');
   }
   const startAt = w.time + (p.type === 'meetup' || p.type === 'festival' ? startIn : 30);

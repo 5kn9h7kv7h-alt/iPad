@@ -7,6 +7,7 @@ import { cityData } from './buildings/data';
 import { atmo } from './environment/Environment';
 import { chooseShot, FOV, newDirector, poseFor, type DirectorState, type Shot } from './director';
 import { registry } from './registry';
+import { renderPos } from './citizens/Citizens';
 
 const MANUAL_RESUME_SECONDS = 25;
 
@@ -62,7 +63,7 @@ export function CameraRig() {
     }
     const shot = d.current!;
     const t = now - shotStart.current;
-    const pose = poseFor(w, shot, t, now, { sunAz: Math.atan2(atmo.sunDir.x, atmo.sunDir.z) });
+    const pose = poseFor(w, shot, t, now, { sunAz: Math.atan2(atmo.sunDir.x, atmo.sunDir.z), posOf: id => { const r = renderPos.get(id); return r ? { x: r.x + r.ox, z: r.z + r.oz } : undefined; } });
     // ease the start of each shot, quicker for follow shots
     const k = 1 - Math.exp(-dt * (shot.kind === 'follow' ? 2.6 : shot.kind === 'aerial' ? 1.1 : 1.7));
     want.set(...pose.pos);

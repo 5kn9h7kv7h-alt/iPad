@@ -48,13 +48,13 @@ async function main() {
   check(counts.citizens === 30 && counts.buildings === 26 && counts.areas === 5, `world intact: ${JSON.stringify(counts)}`);
   const tier = await m.evaluate(() => window.__afterlife.sim && localStorage.getItem('afterlife.quality') || 'auto');
   void tier;
-  await m.click('button:has-text("⏸")');
+  await m.click('button:has-text("停止")');
   for (const [name, hour, wx] of [['dawn', 6.5, 'clear'], ['noon', 12, 'clear'], ['golden', 17.6, 'clear'], ['night', 21.5, 'clear'], ['rain', 15, 'rain'], ['fog', 8, 'fog']]) {
     await m.click('button:has-text("1×")');
     await m.evaluate(([h, w]) => window.__afterlife.setTime(h, w), [hour, wx]);
     await m.waitForTimeout(2500);
     await m.evaluate(() => window.__afterlife.setCamera([-30, 38, 70], [-10, 0, 20]));
-    await m.click('button:has-text("⏸")');
+    await m.click('button:has-text("停止")');
     await m.waitForTimeout(1500);
     const s = await m.evaluate(() => window.__afterlife.registry.stats);
     check(within(s, BUDGET.mid.ceiling), `iPhone/mid ${name}: ${s.drawCalls} draw calls (ceiling ${BUDGET.mid.ceiling[0]}), ${Math.round(s.triangles)} tris`);
@@ -63,7 +63,7 @@ async function main() {
   }
 
   // ---- 2. rendering must not change simulation state
-  await m.click('button:has-text("⏸")');
+  await m.click('button:has-text("停止")');
   const h1 = await m.evaluate(() => window.__afterlife.hash());
   await m.waitForTimeout(3000);
   const h2 = await m.evaluate(() => window.__afterlife.hash());
@@ -71,15 +71,14 @@ async function main() {
 
   // ---- 3. features: panels, follow, intervention, save/restore
   await m.click('button:has-text("1×")');
-  await m.click('text=今、気になる人を見つける');
-  await m.click('button:has-text("追跡")');
+  await m.click('button:has-text("誰かを追う")');
   await m.waitForTimeout(1500);
-  check((await m.textContent('[data-testid=shot-label]')).includes('Follow'), 'character follow engages');
-  for (const t of ['PEOPLE', 'EVENTS', 'HISTORY', 'SETTINGS', 'CITY']) { await m.click(`nav >> text=${t}`); await m.waitForTimeout(300); }
-  await m.click('text=＋ 介入'); await m.click('button:has-text("ベンチ")'); await m.waitForTimeout(400);
+  check((await m.textContent('[data-testid=shot-label]')).includes('追跡'), 'character follow engages');
+  for (const t of ['住人', '出来事', '歴史', '設定', '街']) { await m.click(`nav >> text="${t}"`); await m.waitForTimeout(300); }
+  await m.click('button:has-text("手を加える")'); await m.click('button:has-text("ベンチ")'); await m.waitForTimeout(400);
   check((await m.evaluate(() => window.__afterlife.sim.world.props.length)) === 1, 'intervention places a bench');
-  await m.click('button:has-text("⏸")');
-  await m.click('nav >> text=SETTINGS'); await m.click('button:has-text("いま保存")'); await m.waitForTimeout(600);
+  await m.click('button:has-text("停止")');
+  await m.click('nav >> text="設定"'); await m.click('button:has-text("いま保存")'); await m.waitForTimeout(600);
   const t1 = await m.evaluate(() => window.__afterlife.sim.world.time);
   await m.reload(); await m.waitForSelector('[data-testid=clock]'); await m.waitForFunction(() => window.__afterlife?.registry.camera);
   const r = await m.evaluate(() => ({ t: window.__afterlife.sim.world.time, p: window.__afterlife.sim.world.props.length, c: window.__afterlife.counts() }));
@@ -94,7 +93,7 @@ async function main() {
     await m.evaluate(([d, h, w]) => { window.__afterlife.setDay(d); window.__afterlife.setTime(h, w); }, [day, hour, wx]);
     await m.waitForTimeout(3500);
     await m.evaluate(() => window.__afterlife.setCamera([30, 26, -2], [40, 1, -34]));
-    await m.click('button:has-text("⏸")'); await m.waitForTimeout(1500);
+    await m.click('button:has-text("停止")'); await m.waitForTimeout(1500);
     await m.screenshot({ path: `${OUT}iphone_${name}.png` });
     const s = await m.evaluate(() => window.__afterlife.registry.stats);
     check(within(s, BUDGET.mid.ceiling), `iPhone/mid ${name}: ${s.drawCalls} draw calls, ${Math.round(s.triangles)} tris`);

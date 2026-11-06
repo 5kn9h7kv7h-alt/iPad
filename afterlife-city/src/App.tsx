@@ -3,6 +3,7 @@ import { CityCanvas } from './render/Scene';
 import { detectTier } from './render/quality';
 import { newGame, sim, useGame } from './store/game';
 import { step, catchUp } from './sim/engine';
+import { interp, resetInterp, snapshot } from './render/interp';
 import { loadGame, saveGame } from './store/persist';
 import { fetchStatus } from './ai/client';
 import { enrichDialogue, requestEventProposals } from './ai/service';
@@ -12,10 +13,27 @@ import { EventsPanel, HistoryPanel } from './ui/Events';
 import { SettingsPanel } from './ui/Settings';
 import { DigestModal, DocumentaryModal, Toast } from './ui/Modals';
 
-const TABS: { id: 'city' | 'people' | 'events' | 'history' | 'settings'; label: string; icon: string }[] = [
-  { id: 'city', label: 'CITY', icon: '◎' }, { id: 'people', label: 'PEOPLE', icon: '☺' }, { id: 'events', label: 'EVENTS', icon: '✦' },
-  { id: 'history', label: 'HISTORY', icon: '❖' }, { id: 'settings', label: 'SETTINGS', icon: '⚙' },
+const TABS: { id: 'city' | 'people' | 'events' | 'history' | 'settings'; label: string }[] = [
+  { id: 'city', label: '街' }, { id: 'people', label: '住人' }, { id: 'events', label: '出来事' }, { id: 'history', label: '歴史' }, { id: 'settings', label: '設定' },
 ];
+const AUTO_HIDE_MS = 8000;
+
+/** Controls fade out while you watch the town; a tap on empty space brings them back (or hides them again). */
+function HudTimer() {
+  useEffect(() => {
+    if (location.search.includes('debug')) return; // tests drive the UI directly
+    const id = setInterval(() => {
+      const s = useGame.getState();
+      const busy = s.tab !== 'city' || s.selectedCitizen || s.selectedBuilding || s.documentaryFor || s.digest;
+      if (busy) { if (!s.hud) s.showHud(); return; }
+      if (s.hud && Date.now() - s.hudAt > AUTO_HIDE_MS) useGame.setState({ hud: false });
+    }, 500);
+    const wake = (e: Event) => { const t = e.target as HTMLElement; if (t.closest?.('button,select,input,nav,aside')) useGame.getState().showHud(); };
+    window.addEventListener('pointerdown', wake, true);
+    return () => { clearInterval(id); window.removeEventListener('pointerdown', wake, true); };
+  }, []);
+  return null;
+}
 
 function useDesktop() {
   const [d, setD] = useState(() => matchMedia('(min-width: 768px)').matches);
@@ -45,8 +63,9 @@ function SimDriver() {
         acc += dt * s.speed;
         const n = Math.min(Math.floor(acc), 120);
         acc -= Math.floor(acc);
-        for (let i = 0; i < n; i++) step(sim.world);
+        for (let i = 0; i < n; i++) { snapshot(sim.world); step(sim.world); }
       }
+      interp.frac = acc;
       ui += dt; saveT += dt; enrichT += dt;
       if (ui > 0.5) { ui = 0; s.touch(); }
       if (saveT > 20) { saveT = 0; persist(); }
@@ -73,6 +92,7 @@ function SimDriver() {
           const r = catchUp(sim.world, mins);
           if (r.digest.length) st.setDigest({ simulated: r.simulated, days: r.days, events: r.digest });
         } else for (let i = 0; i < Math.floor(mins); i++) step(sim.world);
+        resetInterp(sim.world);
       }
       hiddenAt = 0; last = performance.now();
     };
@@ -107,22 +127,24 @@ export default function App() {
   const setTab = useGame(s => s.setTab);
   const desktop = useDesktop();
   const tier = useGame(s => s.quality);
+  const hud = useGame(s => s.hud);
   const panelOpen = tab !== 'city';
   const frameloop = !ready || (!desktop && panelOpen) ? 'never' : 'always';
 
   return (
-    <div className="relative h-dvh w-screen overflow-hidden bg-slate-950 text-slate-100">
+    <div className="relative h-dvh w-screen overflow-hidden" style={{ background: '#0e0d0b', color: 'var(--paper)' }}>
       <Boot />
+      <HudTimer />
       {ready && <SimDriver />}
       <div className="absolute inset-0">{ready && <CityCanvas frameloop={frameloop} tier={tier} />}</div>
-      {!ready && <div className="absolute inset-0 grid place-items-center text-sm tracking-[0.3em] text-slate-400">LUMIÈRE BAY</div>}
+      {!ready && <div className="serif absolute inset-0 grid place-items-center text-[15px]" style={{ color: 'var(--muted)' }}>ルミエール・ベイ</div>}
 
       {ready && <TopBar />}
       {ready && tab === 'city' && <CityOverlay />}
 
       {ready && panelOpen && (
-        <aside className="glass-solid absolute inset-x-0 bottom-[64px] top-0 z-20 md:inset-x-auto md:right-0 md:top-0 md:w-[440px] md:rounded-l-3xl" style={{ paddingTop: desktop ? 0 : 0 }}>
-          <div className="h-full pt-[68px] md:pt-[76px]">
+        <aside className="panel-solid absolute inset-x-0 bottom-[56px] top-0 z-[15] border-y-0 md:inset-x-auto md:right-0 md:top-0 md:w-[440px] md:border-r-0">
+          <div className="h-full pt-[calc(76px+env(safe-area-inset-top))] sm:pt-[calc(52px+env(safe-area-inset-top))]">
             {tab === 'people' && <PeoplePanel />}
             {tab === 'events' && <EventsPanel />}
             {tab === 'history' && <HistoryPanel />}
@@ -131,13 +153,15 @@ export default function App() {
         </aside>
       )}
 
-      <nav className="glass-solid safe-b absolute inset-x-0 bottom-0 z-30 border-x-0 border-b-0" aria-label="メインナビゲーション">
+      <nav className={`hud ${hud || tab !== 'city' ? '' : 'off'} panel-solid safe-b absolute inset-x-0 bottom-0 z-30 border-x-0 border-b-0`} aria-label="メインナビゲーション">
         <ul className="mx-auto grid max-w-2xl grid-cols-5">
           {TABS.map(t => (
             <li key={t.id}>
               <button onClick={() => setTab(t.id)} aria-current={tab === t.id ? 'page' : undefined}
-                className={`flex h-16 w-full flex-col items-center justify-center gap-0.5 text-[10px] tracking-widest transition ${tab === t.id ? 'text-white' : 'text-slate-500 hover:text-slate-300'}`}>
-                <span className="text-lg leading-none">{t.icon}</span>{t.label}
+                className="relative flex h-14 w-full items-center justify-center text-[13px] transition-colors"
+                style={{ color: tab === t.id ? 'var(--paper)' : 'var(--faint)' }}>
+                {tab === t.id && <span className="absolute inset-x-5 top-0 h-px" style={{ background: 'var(--paper)' }} />}
+                {t.label}
               </button>
             </li>
           ))}

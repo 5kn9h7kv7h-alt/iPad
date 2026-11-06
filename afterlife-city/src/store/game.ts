@@ -5,6 +5,7 @@ import type { SimEvent, WorldState } from '../sim/types';
 import type { AiLogEntry } from '../ai/service';
 import type { AiStatus } from '../ai/client';
 import { detectTier, saveTier, type QualityTier } from '../render/quality';
+import { resetInterp } from '../render/interp';
 
 /** The world is a plain mutable object, kept outside React state so rendering load never corrupts it. */
 export const sim: { world: WorldState } = { world: createWorld() };
@@ -32,6 +33,11 @@ interface GameStore {
   focus: { buildingId: string; at: number } | null;
   quality: QualityTier;
   setQuality: (q: QualityTier) => void;
+  /** on-screen controls: they fade away while you watch, and come back on a tap */
+  hud: boolean;
+  hudAt: number;
+  showHud: () => void;
+  toggleHud: () => void;
   focusBuilding: (id: string) => void;
   setTab: (t: Tab) => void;
   setSpeed: (s: Speed) => void;
@@ -56,6 +62,9 @@ export const useGame = create<GameStore>((set, get) => ({
   cameraMode: 'auto', shotLabel: 'Aerial Shot', aiStatus: { enabled: false, provider: null, model: null }, aiEnabled: true,
   aiLog: [], digest: null, toast: null, documentaryFor: null, focus: null,
   quality: detectTier(),
+  hud: true, hudAt: Date.now(),
+  showHud: () => set({ hud: true, hudAt: Date.now() }),
+  toggleHud: () => set(st => ({ hud: !st.hud, hudAt: Date.now() })),
   setQuality: quality => { saveTier(quality); set({ quality }); },
   focusBuilding: id => set({ focus: { buildingId: id, at: Date.now() }, tab: 'city', selectedBuilding: id, selectedCitizen: null, cameraMode: 'auto' }),
   setTab: tab => set({ tab }),
@@ -82,6 +91,7 @@ export const useGame = create<GameStore>((set, get) => ({
       const r = catchUp(w, offscreenMinutes);
       if (r.digest.length) digest = { simulated: r.simulated, days: r.days, events: r.digest };
     }
+    resetInterp(w);
     set({ digest, ready: true, rev: get().rev + 1, selectedCitizen: null, selectedBuilding: null, spotlight: null });
   },
 }));
@@ -89,6 +99,7 @@ export const useGame = create<GameStore>((set, get) => ({
 export function newGame(seed = Date.now() % 100000): void {
   sim.world = createWorld(seed);
   advance(sim.world, 60); // let the first morning start moving
+  resetInterp(sim.world);
   useGame.setState({ ready: true, digest: null, selectedCitizen: null, selectedBuilding: null, spotlight: null, rev: useGame.getState().rev + 1 });
 }
 

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { sim } from '../../store/game';
+import { sim, useGame } from '../../store/game';
+import { hourOf } from '../../sim/clock';
+import { interp } from '../interp';
 
 function boatGeometry(): THREE.BufferGeometry {
   const parts: [THREE.BufferGeometry, string][] = [];
@@ -36,13 +38,33 @@ export function Boats() {
   const geo = useMemo(boatGeometry, []);
   useEffect(() => { SPOTS.forEach((s, i) => ref.current.setColorAt(i, new THREE.Color(s.tint))); ref.current.instanceColor!.needsUpdate = true; }, []);
   const m = useMemo(() => new THREE.Matrix4(), []), q = useMemo(() => new THREE.Quaternion(), []), e = useMemo(() => new THREE.Euler(), []);
-  useFrame(({ clock }) => {
-    const t = clock.elapsedTime, sea = sim.world.env.sea;
+  const trip = useRef(SPOTS.map(() => 0)); // 0 = moored, 1 = at the fishing ground
+  useFrame(({ clock }, dtRaw) => {
+    const t = clock.elapsedTime, w = sim.world, sea = w.env.sea;
+    const dt = Math.min(dtRaw, 0.1) * useGame.getState().speed;        // sim minutes this frame
+    const h = hourOf(w.time + interp.frac);
+    // the harbour's boats head out when the fishermen are at work, and are back by mid-afternoon
+    const crewOut = Object.values(w.citizens).some(c => c.workplaceId === 'b_fishery' && c.activity === 'work' && c.movedOutAt === undefined);
+    const wantOut = crewOut && h > 5 && h < 13.2 && w.env.weather !== 'fog';
     SPOTS.forEach((s, i) => {
-      const x = s.x + Math.sin(t * 0.05 + i) * s.drift;
+      let x = s.x + Math.sin(t * 0.05 + i) * s.drift, z = s.z, yaw = s.yaw + (s.drift ? Math.cos(t * 0.05 + i) * 0.05 : 0);
+      if (i < 3) {
+        const target = wantOut ? 1 : 0;
+        const prev = trip.current[i];
+        trip.current[i] = THREE.MathUtils.clamp(prev + Math.sign(target - prev) * dt / (55 + i * 12), 0, 1);
+        const p = THREE.MathUtils.smoothstep(trip.current[i], 0, 1);
+        // out through the harbour mouth to the fishing ground, then hold position (drifting a little)
+        const gx = -70 + i * 26 + Math.sin(t * 0.03 + i) * 4, gz = 150 + i * 18;
+        const mx = s.x, mz = 80;
+        x = p < 0.3 ? s.x : p < 0.55 ? THREE.MathUtils.lerp(s.x, mx, (p - 0.3) / 0.25) : THREE.MathUtils.lerp(mx, gx, (p - 0.55) / 0.45);
+        z = p < 0.3 ? THREE.MathUtils.lerp(s.z, mz - 8, p / 0.3) : p < 0.55 ? THREE.MathUtils.lerp(mz - 8, mz, (p - 0.3) / 0.25) : THREE.MathUtils.lerp(mz, gz, (p - 0.55) / 0.45);
+        const moving = Math.abs(trip.current[i] - prev) > 1e-6;
+        if (moving) yaw = (target > prev ? 0 : Math.PI) + (p > 0.55 ? Math.atan2(gx - mx, gz - mz) * (target > prev ? 1 : -1) : 0);
+        else if (p > 0.95) yaw = s.yaw + 0.6;
+      }
       const y = Math.sin(t * 0.8 + i) * 0.2 + 0.05 + sea * Math.sin(t * 1.3 + i) * 0.3;
-      e.set(Math.sin(t * 0.9 + i) * 0.03 * (1 + sea * 2), s.yaw + (s.drift ? Math.cos(t * 0.05 + i) * 0.05 : 0), Math.sin(t * 0.7 + i) * 0.05 * (1 + sea * 2));
-      m.compose(new THREE.Vector3(x, y, s.z), q.setFromEuler(e), new THREE.Vector3(1, 1, 1));
+      e.set(Math.sin(t * 0.9 + i) * 0.03 * (1 + sea * 2), yaw, Math.sin(t * 0.7 + i) * 0.05 * (1 + sea * 2));
+      m.compose(new THREE.Vector3(x, y, z), q.setFromEuler(e), new THREE.Vector3(1, 1, 1));
       ref.current.setMatrixAt(i, m);
     });
     ref.current.instanceMatrix.needsUpdate = true;

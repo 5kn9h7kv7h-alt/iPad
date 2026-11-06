@@ -3,7 +3,8 @@ import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { sim, useGame } from '../../store/game';
-import { hourOf } from '../../sim/clock';
+import { isOpenAt } from '../../sim/behavior';
+import type { Building, WorldState } from '../../sim/types';
 import { atmo } from '../environment/Environment';
 import { buildCity, citySignature } from './city';
 import type { Cell } from './batch';
@@ -45,15 +46,16 @@ function signAtlas(cells: Cell[]): THREE.CanvasTexture {
 }
 
 // ---------------------------------------------------------------- materials
-const glassUniforms = { uHome: { value: 0 }, uShop: { value: 0 }, uGlow: { value: 0 } };
+export const MAX_LIT = 96;
+const glassUniforms = { uLit: { value: new Array<number>(MAX_LIT).fill(0) }, uGlow: { value: 0 } };
 
 function makeGlassMaterial(): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.2, metalness: 0.15, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, glassUniforms);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aSeed; attribute float aShop; uniform float uHome; uniform float uShop; varying float vLit;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvLit = aSeed < 0.0 ? 1.0 : step(aSeed, mix(uHome, uShop, aShop));');
+      .replace('#include <common>', `#include <common>\nattribute float aSeed; attribute float aBld; uniform float uLit[${MAX_LIT}]; varying float vLit;`)
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvLit = aSeed < 0.0 ? 1.0 : step(aSeed, uLit[int(aBld + 0.5)]);');
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying float vLit; uniform float uGlow;')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.62, 0.30) * vLit * uGlow * 0.7;');
@@ -61,15 +63,20 @@ function makeGlassMaterial(): THREE.MeshStandardMaterial {
   return m;
 }
 
-/** Fraction of home / shop windows that are lit at a given hour. */
-export function litFractions(hour: number): { home: number; shop: number } {
-  const ramp = (a: number, b: number, h: number) => Math.min(1, Math.max(0, (h - a) / (b - a)));
-  let home = 0;
-  if (hour >= 17) home = 0.7 * ramp(17, 20, hour) * (1 - 0.85 * ramp(23, 25, hour));
-  else if (hour < 1) home = 0.7 * (1 - 0.85 * ramp(23 - 24, 1, hour));
-  else if (hour < 7) home = 0.4 * ramp(4.5, 5.5, hour) * (1 - ramp(6, 7, hour));
-  const shop = hour >= 9 && hour < 21 ? 0.95 : hour >= 21 || hour < 1 ? 0.12 : 0.05;
-  return { home, shop };
+/**
+ * Share of a building's windows lit right now, from who is actually inside: a house glows when someone is home
+ * and awake, an apartment by how many are up, a shop while it is open. Read-only on the sim.
+ */
+export function windowLight(w: WorldState, b: Building): number {
+  if (b.status !== 'open') return 0;
+  if (b.isHome) {
+    let awake = 0;
+    for (const c of Object.values(w.citizens)) if (c.currentLocation === b.id && c.movedOutAt === undefined && c.activity !== 'sleep') awake++;
+    if (b.kind === 'apartment') return Math.min(0.85, 0.04 + 0.16 * awake);
+    return awake ? Math.min(0.9, 0.5 + 0.15 * awake) : 0.03;
+  }
+  if (isOpenAt(b, w.time)) return 0.95;
+  return Object.values(w.citizens).some(c => c.currentLocation === b.id && c.plan?.arrived) ? 0.3 : 0.04;
 }
 
 export function Buildings() {
@@ -98,8 +105,8 @@ export function Buildings() {
   const signMat = useMemo(() => new THREE.MeshStandardMaterial({ map: atlas, emissiveMap: atlas, emissive: new THREE.Color('#ffffff'), emissiveIntensity: 0, roughness: 0.6 }), [atlas]);
 
   useFrame(() => {
-    const f = litFractions(hourOf(sim.world.time));
-    glassUniforms.uHome.value = f.home; glassUniforms.uShop.value = f.shop;
+    const lit = glassUniforms.uLit.value;
+    built.ranges.forEach((r, i) => { if (i < MAX_LIT) { const b = sim.world.buildings[r.id]; lit[i] = b ? windowLight(sim.world, b) : 0; } });
     const glow = THREE.MathUtils.smoothstep(atmo.night + (1 - atmo.sunGlow) * 0.25, 0.1, 0.7);
     glassUniforms.uGlow.value = glow;
     signMat.emissiveIntensity = glow * 0.55;
@@ -128,7 +135,7 @@ export function Buildings() {
         </mesh>
       )}
       {closed.map(b => (
-        <Html key={b.id} position={[b.x, b.h + 2, b.z]} center distanceFactor={60}><div className="pointer-events-none rounded bg-black/60 px-2 py-0.5 text-[10px] text-white">閉店</div></Html>
+        <Html key={b.id} position={[b.x, b.h + 2, b.z]} center distanceFactor={60}><div className="hud-label">閉店</div></Html>
       ))}
     </group>
   );

@@ -2,8 +2,8 @@
 // (solid walls/roofs, glass, signs) so 26 buildings cost ~3 draw calls. Pure data — no React, no sim writes.
 import * as THREE from 'three';
 
-interface Buf { pos: number[]; nor: number[]; col: number[]; uv: number[]; seed: number[]; shop: number[] }
-const newBuf = (): Buf => ({ pos: [], nor: [], col: [], uv: [], seed: [], shop: [] });
+interface Buf { pos: number[]; nor: number[]; col: number[]; uv: number[]; seed: number[]; shop: number[]; bld: number[] }
+const newBuf = (): Buf => ({ pos: [], nor: [], col: [], uv: [], seed: [], shop: [], bld: [] });
 
 const unit = (g: THREE.BufferGeometry) => (g.index ? g.toNonIndexed() : g);
 const BOX = unit(new THREE.BoxGeometry(1, 1, 1));
@@ -36,19 +36,23 @@ export interface Cell { text: string; bg: string; fg: string }
 /** heading: world yaw the sitter faces, as angle t with facing vector (sin t, cos t) in (x, z). */
 export interface Anchor { buildingId: string; kind: 'door' | 'seat' | 'sign' | 'lamp'; x: number; z: number; heading?: number }
 export interface Range { id: string; start: number; end: number }
+/** World-space bounding box of one solid primitive (used by the overlap audit test). */
+export interface Part { id: string; tag: string; min: [number, number, number]; max: [number, number, number] }
 
 const _m = new THREE.Matrix4(), _n = new THREE.Matrix3(), _p = new THREE.Vector3(), _nv = new THREE.Vector3();
 const _q = new THREE.Quaternion(), _e = new THREE.Euler(), _s = new THREE.Vector3(), _c = new THREE.Color();
 
 export class Batch {
   solid = newBuf(); glass = newBuf(); sign = newBuf();
-  cells: Cell[] = []; anchors: Anchor[] = []; ranges: Range[] = [];
+  cells: Cell[] = []; anchors: Anchor[] = []; ranges: Range[] = []; parts: Part[] = [];
+  /** label for the parts pushed next (e.g. 'lamp', 'bench'); empty = building body */
+  tag = '';
   base = new THREE.Matrix4();
-  private rangeStart = 0; private rangeId = '';
+  private rangeStart = 0; private rangeId = ''; private rangeIndex = 0;
   private yaw = 0; private ox = 0; private oz = 0;
 
   begin(id: string, x: number, z: number, yaw: number): void {
-    this.rangeId = id; this.rangeStart = this.solid.pos.length / 9;
+    this.rangeId = id; this.rangeStart = this.solid.pos.length / 9; this.rangeIndex = this.ranges.length;
     this.yaw = yaw; this.ox = x; this.oz = z;
     this.base.makeRotationY(yaw).setPosition(x, 0, z);
   }
@@ -64,18 +68,24 @@ export class Batch {
     const g = GEO[shape];
     const P = g.attributes.position as THREE.BufferAttribute, N = g.attributes.normal as THREE.BufferAttribute, U = g.attributes.uv as THREE.BufferAttribute;
     _n.getNormalMatrix(m);
+    const lo: [number, number, number] = [Infinity, Infinity, Infinity], hi: [number, number, number] = [-Infinity, -Infinity, -Infinity];
     for (let i = 0; i < P.count; i++) {
       _p.fromBufferAttribute(P, i).applyMatrix4(m);
       _nv.fromBufferAttribute(N, i).applyMatrix3(_n).normalize();
-      buf.pos.push(_p.x, _p.y, _p.z); buf.nor.push(_nv.x, _nv.y, _nv.z); buf.col.push(color.r, color.g, color.b);
+      buf.pos.push(_p.x, _p.y, _p.z); buf.nor.push(_nv.x, _nv.y, _nv.z);
+      // contact shading: walls darken towards the ground so buildings sit on it instead of floating
+      const ao = buf === this.solid && Math.abs(_nv.y) < 0.5 ? 0.7 + 0.3 * Math.min(1, Math.max(0, _p.y / 1.8)) ** 0.8 : 1;
+      buf.col.push(color.r * ao, color.g * ao, color.b * ao);
       if (opts?.cell !== undefined) {
         const cols = 4, cx = opts.cell % cols, cy = Math.floor(opts.cell / cols);
         buf.uv.push((cx + U.getX(i)) / cols, 1 - (cy + 1 - U.getY(i)) / 16);
       } else if (Math.abs(_nv.y) > 0.7) buf.uv.push(_p.x * 0.22, _p.z * 0.22);
       else if (Math.abs(_nv.x) > Math.abs(_nv.z)) buf.uv.push(_p.z * 0.22, _p.y * 0.22);
       else buf.uv.push(_p.x * 0.22, _p.y * 0.22);
-      buf.seed.push(opts?.seed ?? 0); buf.shop.push(opts?.shop ?? 0);
+      buf.seed.push(opts?.seed ?? 0); buf.shop.push(opts?.shop ?? 0); buf.bld.push(this.rangeIndex);
+      for (let k = 0; k < 3; k++) { const v = k === 0 ? _p.x : k === 1 ? _p.y : _p.z; if (v < lo[k]) lo[k] = v; if (v > hi[k]) hi[k] = v; }
     }
+    if (buf === this.solid) this.parts.push({ id: this.rangeId, tag: this.tag, min: lo, max: hi });
   }
 
   /** Generic part in building-local space. pos = centre (box) / base-centre (hip, gable, cyl uses centre). */
@@ -152,7 +162,7 @@ export class Batch {
     g.setAttribute('normal', new THREE.Float32BufferAttribute(buf.nor, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(buf.col, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(buf.uv, 2));
-    if (withLit) { g.setAttribute('aSeed', new THREE.Float32BufferAttribute(buf.seed, 1)); g.setAttribute('aShop', new THREE.Float32BufferAttribute(buf.shop, 1)); }
+    if (withLit) { g.setAttribute('aSeed', new THREE.Float32BufferAttribute(buf.seed, 1)); g.setAttribute('aBld', new THREE.Float32BufferAttribute(buf.bld, 1)); }
     g.computeBoundingSphere();
     return g;
   }
