@@ -51,11 +51,13 @@ export class Batch {
   private rangeStart = 0; private rangeId = ''; private rangeIndex = 0;
   private yaw = 0; private ox = 0; private oz = 0;
 
-  begin(id: string, x: number, z: number, yaw: number): void {
-    this.rangeId = id; this.rangeStart = this.solid.pos.length / 9; this.rangeIndex = this.ranges.length;
-    this.yaw = yaw; this.ox = x; this.oz = z;
-    this.base.makeRotationY(yaw).setPosition(x, 0, z);
+  /** Start a building. `y` lifts it onto a hillside; `litSlot` makes its windows share one night-light slot. */
+  begin(id: string, x: number, z: number, yaw: number, y = 0, litSlot?: number): void {
+    this.rangeId = id; this.rangeStart = this.solid.pos.length / 9; this.rangeIndex = litSlot ?? this.ranges.length;
+    this.yaw = yaw; this.ox = x; this.oz = z; this.oy = y;
+    this.base.makeRotationY(yaw).setPosition(x, y, z);
   }
+  private oy = 0;
   end(): void { this.ranges.push({ id: this.rangeId, start: this.rangeStart, end: this.solid.pos.length / 9 }); }
 
   /** local (x, z) -> world, for anchors */
@@ -117,6 +119,13 @@ export class Batch {
     this.push(this.solid, 'plane', place(0.02, w + 0.22, h + 0.22), _c.set(frame as THREE.ColorRepresentation));
     this.push(this.glass, 'plane', place(0.045, w, h), _c.set('#6f8d9a'), { seed, shop });
   }
+  /** A flat panel on a face (shutters, railings, plaques). Same face convention as window(). */
+  facePlane(face: 0 | 1 | 2 | 3, W: number, D: number, u: number, v: number, w: number, h: number, off: number, color: string | THREE.Color): void {
+    const th = [0, Math.PI, Math.PI / 2, -Math.PI / 2][face];
+    const ox = face === 2 ? W / 2 : face === 3 ? -W / 2 : 0, oz = face === 0 ? D / 2 : face === 1 ? -D / 2 : 0;
+    _m.makeRotationY(th).setPosition(ox, 0, oz).multiply(new THREE.Matrix4().compose(_p.set(u, v, off), _q.identity(), _s.set(w, h, 1))).premultiply(this.base);
+    this.push(this.solid, 'plane', _m, _c.set(color as THREE.ColorRepresentation));
+  }
   /** Grid of windows across a face. */
   windows(face: 0 | 1 | 2 | 3, W: number, D: number, o: { floors: number; cols: number; y0: number; floorH: number; w?: number; h?: number; shop?: number; seed: number; skip?: (r: number, c: number) => boolean; frame?: string }): void {
     const fw = face < 2 ? W : D;
@@ -151,7 +160,7 @@ export class Batch {
   frame(x: number, z: number, yaw: number, fn: () => void): void {
     const sb = this.base.clone(), sy = this.yaw, sx = this.ox, sz = this.oz;
     this.yaw = yaw; this.ox = x; this.oz = z;
-    this.base.makeRotationY(yaw).setPosition(x, 0, z);
+    this.base.makeRotationY(yaw).setPosition(x, this.oy, z);
     fn();
     this.base.copy(sb); this.yaw = sy; this.ox = sx; this.oz = sz;
   }

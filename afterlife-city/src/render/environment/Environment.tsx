@@ -76,7 +76,7 @@ varying vec3 vDir;
 void main() { vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 const SKY_FRAG = /* glsl */ `
 varying vec3 vDir;
-uniform vec3 uTop, uHorizon, uSunDir, uSunColor, uCloudLit, uCloudShade;
+uniform vec3 uTop, uHorizon, uMid, uSunDir, uSunColor, uCloudLit, uCloudShade;
 uniform float uNight, uCover, uTime, uSunGlow;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -85,9 +85,10 @@ float fbm(vec2 p) { float a = 0.5, s = 0.0; for (int i = 0; i < 4; i++) { s += a
 void main() {
   vec3 d = normalize(vDir);
   float h = clamp(d.y, 0.0, 1.0);
-  vec3 col = mix(uHorizon, uTop, pow(h, 0.5));
+  vec3 col = h < 0.22 ? mix(uHorizon, uMid, smoothstep(0.0, 0.22, h)) : mix(uMid, uTop, pow((h - 0.22) / 0.78, 0.65));
   float sd = max(dot(d, uSunDir), 0.0);
-  col += uSunColor * (pow(sd, 5.0) * 0.16 + pow(sd, 50.0) * 0.3 + pow(sd, 900.0) * 1.6) * uSunGlow;
+  // halo + disc: the disc is HDR so the bloom pass gives it a soft glow
+  col += uSunColor * (pow(sd, 4.0) * 0.18 + pow(sd, 40.0) * 0.38 + pow(sd, 300.0) * 1.2 + smoothstep(0.99955, 0.99975, sd) * 14.0) * uSunGlow;
   if (d.y > 0.01) {
     vec2 uv = d.xz / (d.y + 0.28) * 1.5 + vec2(uTime * 0.006, uTime * 0.002);
     float n = fbm(uv);
@@ -95,7 +96,8 @@ void main() {
     vec2 sdir = normalize(uSunDir.xz + 1e-4);
     float lit = clamp(0.5 + dot(normalize(d.xz + 1e-4), sdir) * 0.5, 0.0, 1.0);
     vec3 cc = mix(uCloudShade, uCloudLit, lit * (0.55 + 0.45 * (1.0 - n)));
-    col = mix(col, cc, c * 0.88 * smoothstep(0.01, 0.16, d.y));
+    cc += uSunColor * pow(sd, 6.0) * 0.9 * uSunGlow;            // silver/golden lining towards the sun
+    col = mix(col, cc, c * 0.9 * smoothstep(0.01, 0.16, d.y));
   }
   if (uNight > 0.02 && d.y > 0.0) {
     vec2 g = floor(d.xz / (d.y + 0.35) * 70.0);
@@ -112,7 +114,7 @@ export function SkyDome() {
   const mat = useMemo(() => new THREE.ShaderMaterial({
     vertexShader: SKY_VERT, fragmentShader: SKY_FRAG, side: THREE.BackSide, depthWrite: false, depthTest: true, fog: false,
     uniforms: {
-      uTop: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() }, uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+      uTop: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() }, uMid: { value: new THREE.Color() }, uSunDir: { value: new THREE.Vector3(0, 1, 0) },
       uSunColor: { value: new THREE.Color() }, uCloudLit: { value: new THREE.Color() }, uCloudShade: { value: new THREE.Color() },
       uNight: { value: 0 }, uCover: { value: 0.3 }, uTime: { value: 0 }, uSunGlow: { value: 1 },
     },
@@ -120,7 +122,7 @@ export function SkyDome() {
   useFrame(({ camera, clock }) => {
     mesh.current.position.copy(camera.position);
     const u = mat.uniforms;
-    u.uTop.value.copy(atmo.skyTop); u.uHorizon.value.copy(atmo.skyHorizon); u.uSunDir.value.copy(atmo.sunDir);
+    u.uTop.value.copy(atmo.skyTop); u.uHorizon.value.copy(atmo.skyHorizon); u.uMid.value.copy(atmo.skyMid); u.uSunDir.value.copy(atmo.sunDir);
     u.uSunColor.value.copy(atmo.sunColor); u.uCloudLit.value.copy(atmo.cloudLit); u.uCloudShade.value.copy(atmo.cloudShade);
     u.uNight.value = atmo.night; u.uCover.value = atmo.cover; u.uTime.value = clock.elapsedTime; u.uSunGlow.value = atmo.sunGlow;
   });
@@ -157,7 +159,11 @@ void main() {
   vec3 R = reflect(-V, N); R.y = abs(R.y);
   vec3 sky = mix(uHorizon, uTop, pow(clamp(R.y, 0.0, 1.0), 0.5));
   float sd = max(dot(R, uSunDir), 0.0);
-  vec3 sun = uSunColor * (pow(sd, 500.0) * 3.5 + pow(sd, 40.0) * 0.45 + pow(sd, 6.0) * 0.12) * uSunGlow;
+  // broad reflected glow + a glittering path: fine ripples make many tiny HDR glints that the bloom softens
+  vec3 Ng = normalize(N + vec3(sin(q.x * 3.7 + uTime * 2.6) * sin(q.y * 2.9 - uTime * 2.1), 0.0, cos(q.x * 2.3 - uTime * 1.7) * sin(q.y * 4.1 + uTime * 2.4)) * 0.09);
+  vec3 Rg = reflect(-V, Ng);
+  float glint = pow(max(dot(Rg, uSunDir), 0.0), 1400.0) * 9.0;
+  vec3 sun = uSunColor * (pow(sd, 500.0) * 3.5 + pow(sd, 40.0) * 0.55 + pow(sd, 6.0) * 0.16 + glint) * uSunGlow;
   float shore = 1.0 - smoothstep(52.0, 82.0, vWorld.z);
   vec3 body = mix(uDeep, uShallow, shore * 0.8);
   vec3 col = mix(body, sky, fres) + sun;
@@ -171,7 +177,7 @@ void main() {
 }`;
 
 export function Sea({ seg }: { seg: [number, number] }) {
-  const geo = useMemo(() => { const g = new THREE.PlaneGeometry(420, 170, seg[0], seg[1]); g.rotateX(-Math.PI / 2); return g; }, [seg]);
+  const geo = useMemo(() => { const g = new THREE.PlaneGeometry(640, 320, seg[0], seg[1]); g.rotateX(-Math.PI / 2); return g; }, [seg]);
   const mat = useMemo(() => new THREE.ShaderMaterial({
     vertexShader: SEA_VERT, fragmentShader: SEA_FRAG,
     uniforms: {
@@ -188,7 +194,7 @@ export function Sea({ seg }: { seg: [number, number] }) {
     u.uSunDir.value.copy(atmo.sunDir); u.uSunColor.value.copy(atmo.sunColor); u.uSunGlow.value = atmo.sunGlow;
     u.uFogColor.value.copy(atmo.fogColor); u.uFogDensity.value = atmo.fogDensity;
   });
-  return <mesh geometry={geo} material={mat} position={[0, -0.25, 137]} frustumCulled={false} />;
+  return <mesh geometry={geo} material={mat} position={[0, -0.25, 212]} frustumCulled={false} />;
 }
 
 // ------------------------------------------------------------------ lamp light pools (1 draw call)

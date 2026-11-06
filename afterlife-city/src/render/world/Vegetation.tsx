@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { sim } from '../../store/game';
 import type { Season, WorldState } from '../../sim/types';
 import { frontYaw } from '../../sim/doors';
+import { coastZ, fbm, heightAt, TOWN } from './terrainHeight';
+import { backdropBoxes, CHURCH } from './backdrop';
 import { inBuilding, onStreet } from '../buildings/space';
 
 // ---------------------------------------------------------------- crowns (3 species) + trunks: 4 instanced draws, wind-swayed in the vertex shader
@@ -40,7 +42,7 @@ function swayMaterial(): THREE.MeshStandardMaterial {
   return m;
 }
 
-interface Tree { x: number; z: number; s: number; kind: 0 | 1 | 2; r: number }
+interface Tree { x: number; z: number; s: number; kind: 0 | 1 | 2; r: number; y?: number; far?: boolean }
 
 export function makeTrees(): Tree[] { return makeTreesFor(sim.world); }
 
@@ -54,23 +56,35 @@ export function makeTreesFor(world: WorldState): Tree[] {
   for (let i = 0; i < 34; i++) out.push({ x: -92 + r() * 20, z: -26 + r() * 52, s: 0.8 + r(), kind: r() < 0.5 ? 1 : 2, r: r() });
   for (let i = 0; i < 26; i++) out.push({ x: 80 + r() * 20, z: -52 + r() * 80, s: 0.9 + r(), kind: r() < 0.6 ? 1 : 0, r: r() });
   for (let i = 0; i < 40; i++) out.push({ x: 8 + r() * 66, z: -34 + r() * 50, s: 0.8 + r() * 0.7, kind: r() < 0.7 ? 1 : 2, r: r() }); // residential street trees
+  // forest on the hills and headlands outside the town (density from noise, pines higher up)
+  for (let i = 0; i < 1500; i++) {
+    const x = -240 + r() * 480, z = -230 + r() * 330;
+    if (x > TOWN.x0 - 2 && x < TOWN.x1 + 2 && z > TOWN.z0 - 2) continue;
+    if (z > coastZ(x) - 3) continue;
+    if (fbm(x * 0.035, z * 0.035, 3) < 0.5 && r() < 0.75) continue;
+    const h = heightAt(x, z);
+    out.push({ x, z, s: 0.8 + r() * 0.7, kind: h > 22 || r() < 0.35 ? 0 : r() < 0.25 ? 2 : 1, r: r(), far: true });
+  }
   const solid = Object.values(world.buildings).filter(b => !['plaza', 'beach'].includes(b.kind));
+  const houseBoxes = [...backdropBoxes(), { x0: CHURCH.x - 9, x1: CHURCH.x + 11, z0: CHURCH.z - 12, z1: CHURCH.z + 10 }];
   const rows = [-30, 0, 30], cols = [-60, -40, -20, 10, 35, 60];
   return out.filter(t => {
     if (solid.some(b => Math.abs(b.x - t.x) < b.w / 2 + 3 && Math.abs(b.z - t.z) < b.d / 2 + 3)) return false;
+    { const m = 0.8 + 1.3 * t.s; if (houseBoxes.some(b => t.x > b.x0 - m && t.x < b.x1 + m && t.z > b.z0 - m && t.z < b.z1 + m)) return false; }
     if (world.lots.some(l => Math.abs(l.x - t.x) < l.w / 2 + 2 && Math.abs(l.z - t.z) < l.d / 2 + 2)) return false;
     if (rows.some(z => Math.abs(t.z - z) < 5 && t.x > -64 && t.x < 64) || cols.some(x => Math.abs(t.x - x) < 5 && t.z > -34 && t.z < 34)) return false;
-    if (t.z > 31 && t.x < -17) return false;     // harbor
-    if (t.z > 40) return false;                   // beach / sea
+    if (t.z > 31 && t.x < -17 && t.x > TOWN.x0) return false;     // harbor
+    if (t.z > 40 && t.x > TOWN.x0 && t.x < TOWN.x1) return false;  // beach / sea
     if (Math.abs(t.z + 35) < 4 && t.x > -64 && t.x < 64) return false;
     return true;
-  });
+  }).map(t => ({ ...t, y: heightAt(t.x, t.z) - 0.1 }));
 }
 
 export function makeBushesFor(w: WorldState): { x: number; z: number; s: number; r: number }[] {
   const out: { x: number; z: number; s: number; r: number }[] = [];
   let seed = 99; const r = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
-  const ok = (x: number, z: number, rad: number) => !onStreet(w, x, z, rad) && !inBuilding(w, x, z, rad);
+  const hb = backdropBoxes();
+  const ok = (x: number, z: number, rad: number) => !onStreet(w, x, z, rad) && !inBuilding(w, x, z, rad) && !hb.some(b => x + rad > b.x0 && x - rad < b.x1 && z + rad > b.z0 && z - rad < b.z1);
   for (const b of Object.values(w.buildings)) {
     if (b.kind === 'house' || b.kind === 'cafe' || b.kind === 'shop' || b.kind === 'bookstore') {
       // a hedge along the back wall (the side away from the street)
@@ -100,7 +114,11 @@ const CROWN: Record<Season, string[]> = {
 
 export function Vegetation({ scale, bushes, detail }: { scale: number; bushes: boolean; detail: 0 | 1 }) {
   const trees = useMemo(() => makeTrees().filter((_, i) => (i * 0.618) % 1 < scale), [scale]);
-  const groups = useMemo(() => [0, 1, 2].map(k => trees.filter(t => t.kind === k)), [trees]);
+  const groups = useMemo(() => [0, 1, 2].map(k => trees.filter(t => t.kind === k && !t.far)), [trees]);
+  const farGroups = useMemo(() => [trees.filter(t => t.far && t.kind === 0), trees.filter(t => t.far && t.kind !== 0)], [trees]);
+  const farRefs = [useRef<THREE.InstancedMesh>(null!), useRef<THREE.InstancedMesh>(null!)];
+  const farGeos = useMemo(() => { const a = new THREE.ConeGeometry(1.1, 4.6, 7); a.translate(0, 2.9, 0); const b = new THREE.SphereGeometry(1.25, 9, 6); b.scale(1, 0.85, 1); b.translate(0, 2.3, 0); return [a, b]; }, []);
+  const farMat = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 1 }), []);
   const refs = [useRef<THREE.InstancedMesh>(null!), useRef<THREE.InstancedMesh>(null!), useRef<THREE.InstancedMesh>(null!)];
   const trunk = useRef<THREE.InstancedMesh>(null!);
   const bush = useRef<THREE.InstancedMesh>(null!);
@@ -114,14 +132,18 @@ export function Vegetation({ scale, bushes, detail }: { scale: number; bushes: b
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), sc = new THREE.Vector3();
     let ti = 0;
     groups.forEach((list, k) => {
-      list.forEach((t, i) => { m.compose(p.set(t.x, 0, t.z), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), t.r * 6.28), sc.set(t.s, t.s, t.s)); refs[k].current.setMatrixAt(i, m); trunk.current.setMatrixAt(ti++, m); });
+      list.forEach((t, i) => { m.compose(p.set(t.x, t.y ?? 0, t.z), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), t.r * 6.28), sc.set(t.s, t.s, t.s)); refs[k].current.setMatrixAt(i, m); trunk.current.setMatrixAt(ti++, m); });
       refs[k].current.count = list.length; refs[k].current.instanceMatrix.needsUpdate = true;
     });
     trunk.current.count = ti; trunk.current.instanceMatrix.needsUpdate = true;
+    farGroups.forEach((list, k) => {
+      list.forEach((t, i) => { m.compose(p.set(t.x, t.y ?? 0, t.z), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), t.r * 6.28), sc.set(t.s, t.s * (0.9 + t.r * 0.3), t.s)); farRefs[k].current.setMatrixAt(i, m); });
+      farRefs[k].current.count = list.length; farRefs[k].current.instanceMatrix.needsUpdate = true;
+    });
     bushList.forEach((b, i) => { m.compose(p.set(b.x, 0.25, b.z), q.identity(), sc.set(b.s * 1.1, b.s * 0.75, b.s * 1.1)); bush.current.setMatrixAt(i, m); });
     bush.current.count = bushList.length; bush.current.instanceMatrix.needsUpdate = true;
     lastSeason.current = null;
-  }, [groups, bushList]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [groups, farGroups, bushList]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useFrame(({ clock }) => {
     swayUniforms.uTime.value = clock.elapsedTime;
@@ -141,6 +163,10 @@ export function Vegetation({ scale, bushes, detail }: { scale: number; bushes: b
       });
       if (refs[k].current.instanceColor) refs[k].current.instanceColor!.needsUpdate = true;
     });
+    farGroups.forEach((list, k) => {
+      list.forEach((t, i) => { c.copy(k === 0 ? new THREE.Color(season === 'winter' ? '#56695a' : '#4c6a47') : pal[Math.floor(t.r * 3) % 3]).offsetHSL(0, -0.05, (t.r - 0.5) * 0.08 - 0.04); farRefs[k].current.setColorAt(i, c); });
+      if (farRefs[k].current.instanceColor) farRefs[k].current.instanceColor.needsUpdate = true;
+    });
     bushList.forEach((b, i) => { c.copy(pal[(i + 1) % 3]).multiplyScalar(0.85); bush.current.setColorAt(i, c); });
     if (bush.current.instanceColor) bush.current.instanceColor.needsUpdate = true;
     // bare branches in winter: shrink broadleaf crowns
@@ -148,7 +174,7 @@ export function Vegetation({ scale, bushes, detail }: { scale: number; bushes: b
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), sc = new THREE.Vector3(), ax = new THREE.Vector3(0, 1, 0);
     list1: {
       const list = groups[1];
-      list.forEach((t, i) => { const f = winter ? 0.62 : 1; m.compose(p.set(t.x, 0, t.z), q.setFromAxisAngle(ax, t.r * 6.28), sc.set(t.s * f, t.s * (winter ? 0.8 : 1), t.s * f)); refs[1].current.setMatrixAt(i, m); });
+      list.forEach((t, i) => { const f = winter ? 0.62 : 1; m.compose(p.set(t.x, t.y ?? 0, t.z), q.setFromAxisAngle(ax, t.r * 6.28), sc.set(t.s * f, t.s * (winter ? 0.8 : 1), t.s * f)); refs[1].current.setMatrixAt(i, m); });
       refs[1].current.instanceMatrix.needsUpdate = true;
       break list1;
     }
@@ -157,6 +183,7 @@ export function Vegetation({ scale, bushes, detail }: { scale: number; bushes: b
   return (
     <group>
       {[0, 1, 2].map(k => <instancedMesh key={k} ref={refs[k]} args={[geos[k], mats[k], Math.max(1, groups[k].length)]} castShadow />)}
+      {[0, 1].map(k => <instancedMesh key={'far' + k} ref={farRefs[k]} args={[farGeos[k], farMat, Math.max(1, farGroups[k].length)]} />)}
       <instancedMesh ref={trunk} args={[trunkGeo, undefined, Math.max(1, trees.length)]} castShadow><meshStandardMaterial color="#6b4a2e" roughness={1} /></instancedMesh>
       <instancedMesh ref={bush} args={[undefined, undefined, Math.max(1, bushList.length)]}>
         <icosahedronGeometry args={[0.7, 1]} /><meshStandardMaterial roughness={1} flatShading />

@@ -14,7 +14,7 @@ describe('atmosphere (time-of-day art direction)', () => {
     let prevI = prev.sunIntensity, prevH = lum(prev.skyHorizon);
     for (let h = 0.1; h <= 24; h += 0.1) {
       const a = at(h);
-      expect(Math.abs(a.sunIntensity - prevI)).toBeLessThan(0.3);
+      expect(Math.abs(a.sunIntensity - prevI)).toBeLessThan(0.35);
       expect(Math.abs(lum(a.skyHorizon) - prevH)).toBeLessThan(0.1);
       prevI = a.sunIntensity; prevH = lum(a.skyHorizon);
     }

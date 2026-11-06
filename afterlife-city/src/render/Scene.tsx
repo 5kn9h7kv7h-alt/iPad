@@ -6,11 +6,13 @@ import { registry } from './registry';
 import { Buildings } from './buildings/Buildings';
 import { AtmosphereDriver, LampPools, Lighting, Sea, SkyDome } from './environment/Environment';
 import { Terrain } from './world/Terrain';
+import { Landscape } from './world/Landscape';
 import { Vegetation } from './world/Vegetation';
 import { Boats } from './world/Boats';
 import { Weather } from './world/Weather';
 import { Citizens } from './citizens/Citizens';
 import { CameraRig } from './CameraRig';
+import { PostFX } from './post/PostFX';
 
 function StatsProbe() {
   const gl = useThree(s => s.gl);
@@ -31,9 +33,9 @@ export function CityCanvas({ frameloop, tier }: { frameloop: 'always' | 'never';
   return (
     <Canvas
       key={tier}
-      shadows={q.shadows} frameloop={frameloop} dpr={[1, q.dprMax]}
+      shadows={q.shadows} frameloop={frameloop} dpr={[1, q.dprMax]} flat={!!q.post}
       camera={{ fov: 42, near: 0.5, far: 700, position: [0, 95, 120] }}
-      gl={{ antialias: q.antialias, powerPreference: 'high-performance', preserveDrawingBuffer: false }}
+      gl={{ antialias: q.antialias && !q.post, powerPreference: 'high-performance', preserveDrawingBuffer: false }}
       onPointerMissed={() => {
         const g = useGame.getState();
         if (g.selectedCitizen || g.selectedBuilding) { select(null); selectB(null); } else g.toggleHud();
@@ -43,6 +45,7 @@ export function CityCanvas({ frameloop, tier }: { frameloop: 'always' | 'never';
       <SkyDome />
       <Lighting shadowMap={q.shadowMap} shadows={q.shadows} range={q.shadowRange} />
       <LampPools />
+      <Landscape seg={q.terrainSegments} />
       <Terrain />
       <Sea seg={q.seaSegments} />
       <Buildings />
@@ -51,6 +54,7 @@ export function CityCanvas({ frameloop, tier }: { frameloop: 'always' | 'never';
       <Citizens />
       <Weather drops={q.rainDrops} drift={q.driftParticles} />
       <CameraRig />
+      {q.post && <PostFX settings={q.post} />}
       <StatsProbe />
     </Canvas>
   );

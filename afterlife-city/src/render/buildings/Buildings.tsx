@@ -9,6 +9,8 @@ import { atmo } from '../environment/Environment';
 import { buildCity, citySignature } from './city';
 import type { Cell } from './batch';
 import { cityData } from './data';
+import { SLOT_BACKDROP, SLOT_CHURCH } from './backdropDesign';
+import { hourOf } from '../../sim/clock';
 import { wetness } from '../environment/Environment';
 
 // ---------------------------------------------------------------- textures
@@ -54,11 +56,11 @@ function makeGlassMaterial(): THREE.MeshStandardMaterial {
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, glassUniforms);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', `#include <common>\nattribute float aSeed; attribute float aBld; uniform float uLit[${MAX_LIT}]; varying float vLit;`)
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvLit = aSeed < 0.0 ? 1.0 : step(aSeed, uLit[int(aBld + 0.5)]);');
+      .replace('#include <common>', `#include <common>\nattribute float aSeed; attribute float aBld; uniform float uLit[${MAX_LIT}]; varying float vLit; varying float vLamp;`)
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvLamp = aSeed < 0.0 ? 1.0 : 0.0; vLit = aSeed < 0.0 ? 1.0 : step(aSeed, uLit[int(aBld + 0.5)]);');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vLit; uniform float uGlow;')
-      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.62, 0.30) * vLit * uGlow * 0.7;');
+      .replace('#include <common>', '#include <common>\nvarying float vLit; varying float vLamp; uniform float uGlow;')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.62, 0.30) * vLit * uGlow * (0.75 + vLamp * 2.8);');
   };
   return m;
 }
@@ -106,7 +108,11 @@ export function Buildings() {
 
   useFrame(() => {
     const lit = glassUniforms.uLit.value;
-    built.ranges.forEach((r, i) => { if (i < MAX_LIT) { const b = sim.world.buildings[r.id]; lit[i] = b ? windowLight(sim.world, b) : 0; } });
+    built.ranges.forEach((r, i) => { if (i < SLOT_BACKDROP) { const b = sim.world.buildings[r.id]; lit[i] = b ? windowLight(sim.world, b) : 0; } });
+    // background houses: a share of windows by the hour (people we do not simulate are home in the evening)
+    const h = hourOf(sim.world.time);
+    lit[SLOT_BACKDROP] = h >= 17 ? 0.62 * Math.min(1, (h - 17) / 2.5) * (h > 23 ? 0.35 : 1) : h < 1 ? 0.25 : h < 5 ? 0.06 : h < 7 ? 0.3 : 0.05;
+    lit[SLOT_CHURCH] = 1;
     const glow = THREE.MathUtils.smoothstep(atmo.night + (1 - atmo.sunGlow) * 0.25, 0.1, 0.7);
     glassUniforms.uGlow.value = glow;
     signMat.emissiveIntensity = glow * 0.55;
@@ -118,7 +124,7 @@ export function Buildings() {
     e.stopPropagation();
     const f = e.faceIndex ?? -1;
     const r = built.ranges.find(x => f >= x.start && f < x.end);
-    if (r && !r.id.startsWith('lot:') && r.id !== 'street') select(r.id);
+    if (r && sim.world.buildings[r.id]) select(r.id);
   };
   const sel = selected ? world.buildings[selected] : null;
   const closed = Object.values(world.buildings).filter(b => b.status === 'closed');

@@ -27,7 +27,7 @@ export function audit(w = createWorld()) {
   const flatKinds = new Set(['park', 'plaza', 'beach']);
   const solid = (p: Part) => p.max[1] - p.min[1] > 0.3 || p.min[1] > 0.3; // ignore ground plates/roads
   const parts = B.parts.filter(solid);
-  const isBuilding = (id: string) => !!w.buildings[id] && !flatKinds.has(w.buildings[id].kind);
+  const isBuilding = (id: string) => (!!w.buildings[id] && !flatKinds.has(w.buildings[id].kind)) || id.startsWith('bg:') || id === 'church';
   // 1. different buildings must not intersect
   const byB = parts.filter(p => isBuilding(p.id));
   for (let i = 0; i < byB.length; i++) for (let j = i + 1; j < byB.length; j++) if (byB[i].id !== byB[j].id && overlap(byB[i], byB[j], 0.05)) issues.push(`building ${byB[i].id} x ${byB[j].id}`);
@@ -39,8 +39,9 @@ export function audit(w = createWorld()) {
   // 4. trees vs buildings / furniture / roads
   for (const t of makeTreesFor(w)) {
     const r = 1.2 * t.s; // crown footprint
-    const tp: Part = { id: 'tree', tag: 'tree', min: [t.x - 0.4, 0, t.z - 0.4], max: [t.x + 0.4, 2, t.z + 0.4] };
-    const crown: Part = { id: 'tree', tag: 'crown', min: [t.x - r, 2, t.z - r], max: [t.x + r, 6 * t.s, t.z + r] };
+    const y = t.y ?? 0;
+    const tp: Part = { id: 'tree', tag: 'tree', min: [t.x - 0.4, y, t.z - 0.4], max: [t.x + 0.4, y + 2, t.z + 0.4] };
+    const crown: Part = { id: 'tree', tag: 'crown', min: [t.x - r, y + 2, t.z - r], max: [t.x + r, y + 6 * t.s, t.z + r] };
     for (const p of parts) if (overlap(tp, p) || (isBuilding(p.id) && overlap(crown, p))) { issues.push(`tree @${t.x.toFixed(1)},${t.z.toFixed(1)} x ${p.id}:${p.tag || 'body'}`); break; }
   }
   // 5. hedges / bushes
@@ -54,9 +55,9 @@ export function audit(w = createWorld()) {
 
 import { obstacles, routeTo, segHits, laneOf, isOutdoor } from '../src/sim/paths';
 /** Every route between every pair of places, for a few lanes: no leg may pass through a building, and no leg may run along the asphalt. */
-export function routeAudit(w = createWorld()) {
+export function routeAudit(w = createWorld(), extra: { x0: number; x1: number; z0: number; z1: number }[] = []) {
   const issues: string[] = [];
-  const obs = obstacles(w);
+  const obs = [...obstacles(w), ...extra];
   const places = Object.values(w.buildings);
   const lanes = ['c_01', 'c_07', 'c_13', 'c_22'].map(laneOf);
   let legs = 0;
