@@ -8,13 +8,15 @@ import type { DiscoveryProvider } from './provider';
  * 契約: POST {endpoint} body=GenerateRequest -> { candidates: Candidate[] }（出典 sources 必須）。
  * 応答は必ず検証し、出典のない候補は捨てる（確認できない情報を事実として出さないため）。
  */
-export function createRemoteProvider(endpoint: string, fetchImpl: typeof fetch = fetch): DiscoveryProvider {
+export function createRemoteProvider(
+  endpoint: string, fetchImpl: typeof fetch = fetch, getHeaders: () => Promise<Record<string, string>> = async () => ({}),
+): DiscoveryProvider {
   return {
     id: 'remote-ai',
     metered: true,
     async generate(req, signal) {
       const res = await fetchImpl(endpoint, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(req), signal,
+        method: 'POST', headers: { 'content-type': 'application/json', ...(await getHeaders()) }, body: JSON.stringify(req), signal,
       });
       if (!res.ok) throw new Error(`AIエンドポイントがエラーを返しました (${res.status})`);
       const json = (await res.json()) as { candidates?: unknown };

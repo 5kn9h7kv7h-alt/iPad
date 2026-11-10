@@ -14,3 +14,8 @@ createRoot(document.getElementById('root')!).render(
     </HashRouter>
   </StrictMode>,
 );
+
+// オフラインでも開けるようにする（本番ビルドのみ。開発中はキャッシュが邪魔になるため登録しない）
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('Service Worker を登録できませんでした', e)); });
+}

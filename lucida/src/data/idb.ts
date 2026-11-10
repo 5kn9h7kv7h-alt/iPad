@@ -1,6 +1,7 @@
 import { STORE_NAMES, type Collection, type Repository, type StoreName } from './repository';
 
-const DB_VERSION = 1;
+// v2: nodes / edges / experiments / experimentLogs を追加（v1 のデータはそのまま残る）
+const DB_VERSION = 2;
 
 const req = <T,>(r: IDBRequest<T>) => new Promise<T>((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
 const done = (tx: IDBTransaction) => new Promise<void>((res, rej) => {

@@ -17,3 +17,12 @@ export function deriveState(discoveryId: string, interactions: Interaction[]): D
   }
   return st;
 }
+
+/** 全発見ぶんの状態を一度に導く（発見ごとに履歴を走査しない）。 */
+export function deriveStates(interactions: Interaction[]): Map<string, DiscoveryState> {
+  const by = new Map<string, Interaction[]>();
+  for (const i of interactions) { const a = by.get(i.discoveryId); if (a) a.push(i); else by.set(i.discoveryId, [i]); }
+  const out = new Map<string, DiscoveryState>();
+  for (const [id, list] of by) out.set(id, deriveState(id, list));
+  return out;
+}

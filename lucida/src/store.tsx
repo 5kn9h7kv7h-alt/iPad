@@ -6,16 +6,19 @@ import { openRepository } from './data';
 import type { Repository } from './data/repository';
 import { deriveState, type DiscoveryState } from './domain/state';
 import type {
-  Discovery, Interaction, InteractionKind, Interest, Note, NoteKind, Prefs, Question, Source,
+  Discovery, Experiment, ExperimentLog, Interaction, InteractionKind, Interest, KnowledgeEdge, KnowledgeNode, Note, NoteKind, Prefs, Question, Source,
 } from './domain/types';
+import { removeNodeData } from './knowledge/actions';
+import { nodeId } from './knowledge/graph';
 import { DEFAULT_PREFS } from './domain/types';
 import { newId, nowIso, parseHttpUrl } from './domain/util';
 
 export interface Data {
   interests: Interest[]; discoveries: Discovery[]; sources: Source[]; questions: Question[];
   interactions: Interaction[]; notes: Note[]; prefs: Prefs; usageToday: number;
+  nodes: KnowledgeNode[]; edges: KnowledgeEdge[]; experiments: Experiment[]; experimentLogs: ExperimentLog[];
 }
-const EMPTY: Data = { interests: [], discoveries: [], sources: [], questions: [], interactions: [], notes: [], prefs: DEFAULT_PREFS, usageToday: 0 };
+const EMPTY: Data = { interests: [], discoveries: [], sources: [], questions: [], interactions: [], notes: [], prefs: DEFAULT_PREFS, usageToday: 0, nodes: [], edges: [], experiments: [], experimentLogs: [] };
 
 export type EntryKind = NoteKind | 'question' | 'interest';
 
@@ -45,6 +48,17 @@ interface Ctx {
   importJson(text: string): Promise<void>;
   wipe(): Promise<void>;
   reload(): Promise<void>;
+  /** 保存を伴う操作を実行し、終わったら画面のデータを読み直す */
+  mutate<T>(fn: (repo: Repository) => Promise<T>): Promise<T>;
+  /** 実験分析用のAIエンドポイント（未設定なら null → ルールベース） */
+  analyzeEndpoint: string | null;
+  aiHeaders(): Promise<Record<string, string>>;
+  /** サインインが必要なバックエンドで、まだサインインしていない */
+  needsSignIn: boolean;
+  userEmail: string | null;
+  signIn(email: string, password: string): Promise<void>;
+  signUp(email: string, password: string): Promise<{ needsConfirmation: boolean }>;
+  signOut(): Promise<void>;
 }
 
 const C = createContext<Ctx | null>(null);
@@ -55,6 +69,7 @@ export function useLucida(): Ctx {
 }
 
 const ENDPOINT = import.meta.env.VITE_LUCIDA_AI_ENDPOINT;
+const ANALYZE_ENDPOINT = import.meta.env.VITE_LUCIDA_ANALYZE_ENDPOINT || null;
 
 export function LucidaProvider({ children, repoOverride }: { children: ReactNode; repoOverride?: Repository }) {
   const [repo, setRepo] = useState<Repository | null>(repoOverride ?? null);
@@ -62,6 +77,8 @@ export function LucidaProvider({ children, repoOverride }: { children: ReactNode
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [needsSignIn, setNeedsSignIn] = useState(false);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>();
 
   const say = useCallback((msg: string) => {
@@ -71,13 +88,13 @@ export function LucidaProvider({ children, repoOverride }: { children: ReactNode
   }, []);
 
   const load = useCallback(async (r: Repository) => {
-    const [interests, discoveries, sources, questions, interactions, notes, prefs, usage] = await Promise.all([
+    const [interests, discoveries, sources, questions, interactions, notes, prefs, usage, nodes, edges, experiments, experimentLogs] = await Promise.all([
       r.interests.list(), r.discoveries.list(), r.sources.list(), r.questions.list(), r.interactions.list(),
-      r.notes.list(), getPrefs(r), r.usage.list(),
+      r.notes.list(), getPrefs(r), r.usage.list(), r.nodes.list(), r.edges.list(), r.experiments.list(), r.experimentLogs.list(),
     ]);
     const today = new Date();
     const key = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    setData({ interests, discoveries, sources, questions, interactions, notes, prefs, usageToday: usage.find((u) => u.id === key)?.count ?? 0 });
+    setData({ interests, discoveries, sources, questions, interactions, notes, prefs, usageToday: usage.find((u) => u.id === key)?.count ?? 0, nodes, edges, experiments, experimentLogs });
   }, []);
 
   useEffect(() => {
@@ -87,6 +104,12 @@ export function LucidaProvider({ children, repoOverride }: { children: ReactNode
         const r = repoOverride ?? (await openRepository());
         // ブラウザによるデータ自動削除を避けるため、永続化を要求（拒否されても動作に影響なし）
         try { await navigator.storage?.persist?.(); } catch { /* ignore */ }
+        if (r.auth) {
+          const email = await r.auth.currentEmail();
+          if (!alive) return;
+          setUserEmail(email);
+          if (!email) { setRepo(r); setNeedsSignIn(true); setReady(true); return; }
+        }
         await load(r);
         if (!alive) return;
         setRepo(r);
@@ -100,7 +123,7 @@ export function LucidaProvider({ children, repoOverride }: { children: ReactNode
   }, [load, repoOverride]);
 
   const engine: Engine | null = useMemo(
-    () => (repo ? createEngine({ repo, remote: ENDPOINT ? createRemoteProvider(ENDPOINT) : null }) : null),
+    () => (repo ? createEngine({ repo, remote: ENDPOINT ? createRemoteProvider(ENDPOINT, fetch, async () => (await repo.auth?.functionHeaders()) ?? {}) : null }) : null),
     [repo],
   );
 
@@ -109,6 +132,30 @@ export function LucidaProvider({ children, repoOverride }: { children: ReactNode
     const reload = async () => { if (repo) await load(repo); };
     return {
       ready, loadError, repo, data, aiAvailable: !!ENDPOINT, toast, say, reload,
+      analyzeEndpoint: ANALYZE_ENDPOINT, needsSignIn, userEmail,
+      aiHeaders: async () => (await repo?.auth?.functionHeaders()) ?? {},
+      async mutate(fn) { const out = await fn(need().repo); await reload(); return out; },
+      async signIn(email, password) {
+        const { repo } = need();
+        if (!repo.auth) return;
+        await repo.auth.signIn(email, password);
+        setUserEmail(await repo.auth.currentEmail());
+        await load(repo);
+        setNeedsSignIn(false);
+      },
+      async signUp(email, password) {
+        const { repo } = need();
+        if (!repo.auth) return { needsConfirmation: false };
+        const r = await repo.auth.signUp(email, password);
+        if (!r.needsConfirmation) { setUserEmail(await repo.auth.currentEmail()); await load(repo); setNeedsSignIn(false); }
+        return r;
+      },
+      async signOut() {
+        const { repo } = need();
+        if (!repo.auth) return;
+        await repo.auth.signOut();
+        setUserEmail(null); setData(EMPTY); setNeedsSignIn(true);
+      },
       stateOf: (id) => deriveState(id, data.interactions),
       async react(id, kind) {
         const { repo } = need();
@@ -151,13 +198,17 @@ export function LucidaProvider({ children, repoOverride }: { children: ReactNode
         await refreshProfileSummary(repo);
         await reload();
       },
-      async removeInterest(id) { const { repo } = need(); await repo.interests.remove(id); await refreshProfileSummary(repo); await reload(); },
+      async removeInterest(id) {
+        const { repo } = need();
+        await repo.interests.remove(id); await removeNodeData(repo, nodeId('topic', id));
+        await refreshProfileSummary(repo); await reload();
+      },
       async savePrefs(p) { const { repo } = need(); await repo.preferences.put({ ...(await getPrefs(repo)), ...p, id: 'prefs' }); await reload(); },
       async setQuestionStatus(id, status) {
         const { repo } = need(); const q = await repo.questions.get(id); if (q) await repo.questions.put({ ...q, status }); await reload();
       },
-      async removeQuestion(id) { await need().repo.questions.remove(id); await reload(); },
-      async removeNote(id) { await need().repo.notes.remove(id); await reload(); },
+      async removeQuestion(id) { const { repo } = need(); await repo.questions.remove(id); await removeNodeData(repo, nodeId('question', id)); await reload(); },
+      async removeNote(id) { const { repo } = need(); await repo.notes.remove(id); await removeNodeData(repo, nodeId('insight', id)); await reload(); },
       async addSource(discoveryId, input) {
         const { repo } = need();
         const url = parseHttpUrl(input.url);
@@ -187,7 +238,7 @@ export function LucidaProvider({ children, repoOverride }: { children: ReactNode
       },
       async wipe() { await need().repo.clearAll(); await reload(); },
     };
-  }, [ready, loadError, repo, engine, data, toast, say, load]);
+  }, [ready, loadError, repo, engine, data, toast, say, load, needsSignIn, userEmail]);
 
   return <C.Provider value={ctx}>{children}</C.Provider>;
 }

@@ -1,53 +1,47 @@
-// Supabase Edge Function (Deno)。AIキーはここ(サーバー側の環境変数)にだけ置く。
-// 未デプロイ・未検証（この開発環境ではDeno/Anthropic APIに接続できないため）。デプロイ手順は README を参照。
+// Supabase Edge Function (Deno): 発見候補の生成。
+// AIキーはここ（サーバー側の環境変数）にだけ置く。クライアントには決して渡さない。
 //
-//   supabase secrets set ANTHROPIC_API_KEY=...        # キーはリポジトリに書かない
-//   supabase functions deploy generate-discovery       # 既定で JWT 検証あり（サインイン済みユーザーのみ）
+//   supabase secrets set ANTHROPIC_API_KEY=...      # キーはリポジトリに書かない
+//   supabase functions deploy generate-discovery
 //
 // 契約: POST body = GenerateRequest -> { candidates: Candidate[] }（出典必須）
-import { buildPrompt, parseModelOutput, parseRequest, pickModel } from './logic.ts';
+// 状態: 型チェックとロジックの単体テストは済み。実環境へのデプロイと実通信は未検証（README 参照）。
+import { callClaude, createClient, toHttpError } from '../_shared/claude.ts';
+import { corsHeaders, jsonResponse, verifyUser } from '../_shared/http.ts';
+import { buildPrompt, CANDIDATES_SCHEMA, parseModelOutput, parseRequest, pickModel } from './logic.ts';
 
-declare const Deno: { env: { get(k: string): string | undefined }; serve(h: (r: Request) => Response | Promise<Response>): void };
-
-const cors = {
-  'access-control-allow-origin': Deno.env.get('LUCIDA_ALLOWED_ORIGIN') ?? '*',
-  'access-control-allow-headers': 'authorization, apikey, content-type',
-  'access-control-allow-methods': 'POST, OPTIONS',
-};
-const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'content-type': 'application/json' } });
+const cors = corsHeaders(Deno.env.get('LUCIDA_ALLOWED_ORIGIN'));
 
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
-  if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405);
+  if (request.method !== 'POST') return jsonResponse({ error: 'method not allowed' }, 405, cors);
+
+  const auth = await verifyUser(request, {
+    supabaseUrl: Deno.env.get('SUPABASE_URL'), anonKey: Deno.env.get('SUPABASE_ANON_KEY'), allowAnonymous: Deno.env.get('LUCIDA_ALLOW_ANON') === 'true',
+  });
+  if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status, cors);
+
   const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
-  if (!apiKey) return json({ error: 'server is not configured' }, 503);
+  if (!apiKey) return jsonResponse({ error: 'server is not configured' }, 503, cors);
 
   let req;
-  try { req = parseRequest(await request.json()); } catch { return json({ error: 'invalid request' }, 400); }
+  try { req = parseRequest(await request.json()); } catch { return jsonResponse({ error: 'invalid request' }, 400, cors); }
 
-  const { model, tier } = pickModel(req, {
+  // モデルは環境変数で差し替えられる。既定: 通常=Haiku 5.5（安価）、検索・テーマ指定=Opus 5.5
+  const { model, tier, effort } = pickModel(req, {
     light: Deno.env.get('LUCIDA_MODEL_LIGHT') ?? 'claude-haiku-5-5',
-    heavy: Deno.env.get('LUCIDA_MODEL_HEAVY') ?? 'claude-sonnet-5-5',
+    heavy: Deno.env.get('LUCIDA_MODEL_HEAVY') ?? 'claude-opus-5-5',
   });
   const { system, user } = buildPrompt(req);
 
-  const body: Record<string, unknown> = {
-    model, max_tokens: 2500, system, messages: [{ role: 'user', content: user }],
-  };
-  // Web検索は、ユーザーが許可したリクエストでのみ有効（検索回数も絞る）
-  if (req.allowWebSearch) body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }];
-
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify(body),
+    const { text, model: servedBy } = await callClaude(createClient(apiKey), {
+      model, effort, system, user, webSearch: req.allowWebSearch, schema: CANDIDATES_SCHEMA,
     });
-    if (!res.ok) return json({ error: `upstream ${res.status}` }, 502);
-    const data = await res.json() as { content?: { type: string; text?: string }[] };
-    const text = (data.content ?? []).filter((b) => b.type === 'text').map((b) => b.text ?? '').join('\n');
-    return json({ candidates: parseModelOutput(text), tier });
+    return jsonResponse({ candidates: parseModelOutput(text), tier, model: servedBy }, 200, cors);
   } catch (e) {
-    return json({ error: (e as Error).message }, 502);
+    console.error('generate-discovery failed:', e);
+    const { status, error } = toHttpError(e);
+    return jsonResponse({ error }, status, cors);
   }
 });

@@ -1,12 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Actions, Kicker, PageHead, Row, SectionHead } from '../components/parts';
+import { effectiveTarget } from '../ai/frequency';
 import { dateKey, formatDateJa, greeting, relTime } from '../domain/util';
 import { useLucida } from '../store';
 
+const INTRO_THEMES = ['睡眠', '習慣', '学習', '健康', '心理', '宇宙', '生物', '歴史', '言語', '数学', '技術', '創造性'];
+
 export function Home() {
-  const { data, ensureToday, generate, react, say } = useLucida();
-  const [busy, setBusy] = useState(true);
+  const { data, ensureToday, generate, react, say, saveInterest, savePrefs } = useLucida();
+  // 初回: 興味を選んでから最初の発見を作る（選ばずに始めることもできる）
+  const needsIntro = !data.prefs.onboarded && data.interests.length === 0 && data.discoveries.length === 0;
+  const [picked, setPicked] = useState<string[]>([]);
+  const decision = useMemo(() => effectiveTarget(data.prefs, data.discoveries, data.interactions, new Date()), [data.prefs, data.discoveries, data.interactions]);
+  const [busy, setBusy] = useState(!needsIntro);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const started = useRef(false);
@@ -22,7 +29,15 @@ export function Home() {
       setError('発見の生成に失敗しました。もう一度お試しください。');
     } finally { setBusy(false); }
   };
-  useEffect(() => { if (started.current) return; started.current = true; void run(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { if (started.current || needsIntro) return; started.current = true; void run(); /* eslint-disable-next-line */ }, [needsIntro]);
+
+  const finishIntro = async (names: string[]) => {
+    setBusy(true);
+    try {
+      for (const name of names) await saveInterest({ name, weight: 3 });
+      await savePrefs({ onboarded: true });
+    } catch (e) { console.error(e); setError('保存に失敗しました。もう一度お試しください。'); setBusy(false); }
+  };
 
   const todays = useMemo(
     () => data.discoveries.filter((d) => d.generatedFor === today).sort((a, b) => b.scores.total - a.scores.total),
@@ -70,6 +85,7 @@ export function Home() {
       ...data.interactions.map((i) => ({ at: i.createdAt, id: i.id, text: `「${titles.get(i.discoveryId) ?? '（削除済み）'}」を${label[i.kind]}`, to: `/d/${i.discoveryId}` })),
       ...data.notes.map((n) => ({ at: n.createdAt, id: n.id, text: `記録: ${n.text.slice(0, 28)}`, to: '/archive' })),
       ...data.questions.map((q) => ({ at: q.createdAt, id: q.id, text: `疑問: ${q.text.slice(0, 28)}`, to: '/archive' })),
+      ...data.experiments.map((e) => ({ at: e.completedAt ?? e.createdAt, id: e.id, text: `実験「${e.title.slice(0, 20)}」を${e.completedAt ? '完了' : '開始'}`, to: `/lab/${e.id}` })),
     ].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 6);
   }, [data]);
 
@@ -83,9 +99,26 @@ export function Home() {
         </div>
       </PageHead>
 
+      {needsIntro && (
+        <section className="intro" aria-labelledby="h-intro">
+          <SectionHead en="Welcome" ja="はじめに" />
+          <p id="h-intro" className="prose">気になるテーマを選ぶと、発見があなたに合わせて選ばれます。あとから「興味プロフィール」でいつでも変えられます。</p>
+          <div className="chips" role="group" aria-label="興味のあるテーマ">
+            {INTRO_THEMES.map((t) => (
+              <button key={t} className="chip" aria-pressed={picked.includes(t)} onClick={() => setPicked((p) => (p.includes(t) ? p.filter((x) => x !== t) : [...p, t]))}>{t}</button>
+            ))}
+          </div>
+          <div className="more">
+            <button className="btn primary" disabled={busy || picked.length === 0} onClick={() => finishIntro(picked)}>{picked.length ? `${picked.length}個のテーマで始める` : 'テーマを選んでください'}</button>
+            <button className="link" disabled={busy} onClick={() => finishIntro([])}>選ばずに始める</button>
+          </div>
+        </section>
+      )}
+
       {error && <div className="banner error" role="alert">{error} <button className="link" onClick={run}>再試行</button></div>}
       {notice && <div className="banner" role="status">{notice}</div>}
 
+      {!needsIntro && <>
       <section aria-labelledby="h-today">
         <SectionHead en="Today’s Discovery" ja="今日の発見" />
         {busy && todays.length === 0 && <p className="muted" aria-live="polite">今日の発見を探しています…</p>}
@@ -112,6 +145,8 @@ export function Home() {
         <button className="btn" onClick={more} disabled={busy}>{busy ? '探しています…' : 'もう1つ見つける'}</button>
         <span className="muted small">今日の生成 {data.usageToday} / {data.prefs.dailyLimit}</span>
       </div>
+      {decision.target !== decision.base && <p className="small muted adaptive-note">今日の提案は{decision.target}件です。{decision.reason}。</p>}
+      </>}
 
       <section aria-labelledby="h-insights">
         <SectionHead en="Life Insights" ja="日々の気づき" />

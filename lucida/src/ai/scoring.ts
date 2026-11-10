@@ -88,8 +88,28 @@ export function adaptWeights(interactions: Interaction[]): Weights {
   return w;
 }
 
+/**
+ * 分野の偏り補正: 最近よく出ているカテゴリほど低く、出ていないカテゴリほど高い（0..1）。
+ * 6分野が均等なら 0.5。履歴が少ないうちは中立。
+ */
+export function exposureBalance(category: Category, history: Pick<Discovery, 'category'>[]): number {
+  if (history.length < 6) return 0.5;
+  const share = history.filter((d) => d.category === category).length / history.length;
+  return clamp(1 - share * 3); // 1/6 → 0.5、1/3 以上 → 0
+}
+
+/** カテゴリごとの露出の割合（設定画面の表示用） */
+export function categoryShares(history: Pick<Discovery, 'category'>[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const d of history) out[d.category] = (out[d.category] ?? 0) + 1;
+  for (const k of Object.keys(out)) out[k] = out[k] / history.length;
+  return out;
+}
+
 export interface ScoreContext {
   interests: Interest[]; reactions: TagReactions; recent: Discovery[]; selected: Candidate[]; now: Date;
+  /** 分野の偏り補正に使う、より長い履歴（直近30件ほど）。省略時は補正なし */
+  history?: Discovery[];
   weights: Weights; explore: boolean; // explore: 既存の興味から離れたものを優先（Unknown）
 }
 
@@ -99,7 +119,9 @@ export function scoreCandidate(c: Candidate, ctx: ScoreContext): Scores {
   const novelty = noveltyScore(c, ctx.recent);
   const utility = clamp(c.utility ?? 0.6);
   const timing = timingScore(c, ctx.now);
-  const diversity = diversityScore(c, ctx.selected);
+  // 多様性 = 今回選ぶ組の中での散らばり + 長期の分野バランス
+  const within = diversityScore(c, ctx.selected);
+  const diversity = ctx.history && ctx.history.length >= 6 ? 0.65 * within + 0.35 * exposureBalance(c.category, ctx.history) : within;
   const w = ctx.weights;
   const total = interest * w.interest + novelty * w.novelty * (ctx.explore ? 1.6 : 1) + utility * w.utility + timing * w.timing + diversity * w.diversity;
   const r = (n: number) => Math.round(n * 1000) / 1000;

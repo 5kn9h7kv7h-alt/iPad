@@ -56,7 +56,14 @@ export interface Interaction {
 export interface Question { id: string; text: string; status: 'open' | 'resolved'; createdAt: string }
 
 export type NoteKind = 'idea' | 'insight' | 'log';
-export interface Note { id: string; kind: NoteKind; text: string; tags: string[]; createdAt: string }
+export interface Note {
+  id: string; kind: NoteKind; text: string; tags: string[]; createdAt: string;
+  /** 取り込み元。手動入力は未設定。連携(ファイル取り込み)で入った記録は連携ID */
+  source?: 'calendar' | 'study';
+  /** 取り込み元での識別子（再取り込み時の重複防止） */
+  externalId?: string;
+  importedAt?: string;
+}
 
 export interface Prefs {
   id: 'prefs';
@@ -65,11 +72,17 @@ export interface Prefs {
   aiMode: 'auto' | 'rule';
   /** 外部情報(Web検索)の利用許可。明示的にオンにした場合のみ。既定はオフ */
   webSearch: boolean;
+  /** 提案数の決め方: adaptive=反応に合わせて自動調整 / fixed=dailyTarget固定 */
+  frequencyMode: 'adaptive' | 'fixed';
+  /** 外部サービス連携の許可（連携ID→許可）。明示的にオンにしたものだけ使える */
+  integrations: Record<string, boolean>;
+  /** 初回の案内を終えたか */
+  onboarded: boolean;
   profileSummary: string;
   summaryUpdatedAt: string;
 }
 export const DEFAULT_PREFS: Prefs = {
-  id: 'prefs', dailyTarget: 3, dailyLimit: 6, aiMode: 'auto', webSearch: false, profileSummary: '', summaryUpdatedAt: '',
+  id: 'prefs', dailyTarget: 3, dailyLimit: 6, aiMode: 'auto', webSearch: false, frequencyMode: 'adaptive', integrations: {}, onboarded: false, profileSummary: '', summaryUpdatedAt: '',
 };
 
 export interface UsageRow { id: string; count: number } // id = YYYY-MM-DD
@@ -88,4 +101,83 @@ export interface Candidate {
   utility?: number; // 0..1
   sources: { title: string; url: string }[];
   provenance: 'bundled' | 'ai';
+}
+
+// ---- Knowledge Network (Phase 3) ----
+export const NODE_TYPES = ['topic', 'discovery', 'question', 'insight', 'experiment'] as const;
+export type NodeType = (typeof NODE_TYPES)[number];
+export const NODE_TYPE_JA: Record<NodeType, string> = {
+  topic: 'テーマ', discovery: '発見', question: '疑問', insight: '気づき', experiment: '実験',
+};
+
+/**
+ * ノードの保存レコード。興味・発見・疑問などから導かれるノードは id が決まっており（例 `topic:<id>`）、
+ * このレコードは位置・非表示・明示的な追加(pinned)だけを持つ。refId のないものはユーザーが作った自由ノード。
+ */
+export interface KnowledgeNode {
+  id: string;
+  type: NodeType;
+  label: string;
+  refId?: string;
+  x?: number;
+  y?: number;
+  hidden?: boolean;
+  /** 自動では載らない項目を、ユーザーがNetworkに追加した */
+  pinned?: boolean;
+  note?: string;
+  createdAt: string;
+}
+
+export interface KnowledgeEdge {
+  id: string;
+  sourceNode: string;
+  targetNode: string;
+  relation: string;
+  /** user=自分で結んだ / ai=候補を承認した / system=実験と発見の関係など、事実として決まるもの */
+  origin: 'user' | 'ai' | 'system';
+  /** dismissed=候補を却下した記録（再提案しないために残す。表示はしない） */
+  status: 'active' | 'dismissed';
+  createdAt: string;
+}
+
+// ---- Lab (Phase 3) ----
+export type Outcome = 'supported' | 'not_supported' | 'unclear';
+export const OUTCOME_JA: Record<Outcome, string> = {
+  supported: '仮説は支持された', not_supported: '仮説は支持されなかった', unclear: 'どちらとも言えない',
+};
+
+/** 分析結果。facts は記録の集計（事実）、inferences は推測、nextSteps は提案。 */
+export interface Analysis {
+  facts: string[];
+  inferences: string[];
+  nextSteps: string[];
+  caveat: string;
+  provider: string;
+  createdAt: string;
+}
+
+export interface Experiment {
+  id: string;
+  title: string;
+  hypothesis: string;
+  plan: string;
+  startsOn: string; // YYYY-MM-DD
+  endsOn: string;
+  status: 'planned' | 'running' | 'done';
+  outcome?: Outcome;
+  result?: string;
+  aiAnalysis?: Analysis;
+  discoveryId?: string;
+  createdAt: string;
+  completedAt?: string;
+}
+
+export interface ExperimentLog {
+  id: string;
+  experimentId: string;
+  day: string; // YYYY-MM-DD
+  did: boolean;
+  rating?: 1 | 2 | 3 | 4 | 5;
+  text: string;
+  createdAt: string;
 }

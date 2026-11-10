@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PageHead, Row } from '../components/parts';
-import { CATEGORIES, type Category } from '../domain/types';
+import { CATEGORIES, OUTCOME_JA, type Category } from '../domain/types';
 import { relTime } from '../domain/util';
 import { useLucida } from '../store';
 
-const TABS = [['discoveries', '発見'], ['saved', '保存'], ['questions', '疑問'], ['notes', '記録'], ['sources', '出典']] as const;
+const TABS = [['discoveries', '発見'], ['saved', '保存'], ['questions', '疑問'], ['notes', '記録'], ['experiments', '実験'], ['sources', '出典']] as const;
 type Tab = (typeof TABS)[number][0];
 
 const day = (iso: string) => iso.slice(0, 10);
@@ -36,6 +36,7 @@ export function Archive() {
   [data, tab, cat, tag, from, to, q]);
   const questions = data.questions.filter((x) => inRange(x.createdAt) && has(x.text)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const notes = data.notes.filter((n) => (!tag || n.tags.includes(tag)) && inRange(n.createdAt) && has(n.text, n.tags.join(' '))).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const experiments = data.experiments.filter((e) => inRange(e.createdAt) && has(e.title, e.hypothesis, e.result ?? '')).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const titles = new Map(data.discoveries.map((d) => [d.id, d]));
   const sources = data.sources.filter((s) => inRange(s.fetchedAt) && has(s.title, s.url, titles.get(s.discoveryId)?.title ?? ''))
     .sort((a, b) => b.fetchedAt.localeCompare(a.fetchedAt));
@@ -95,8 +96,20 @@ export function Archive() {
             <ul className="entries">{notes.map((n) => (
               <li key={n.id}>
                 <p><span className="tag infer">{kindJa[n.kind]}</span> {n.text}</p>
-                <p className="small muted">{relTime(n.createdAt)}{n.tags.length > 0 && ` · ${n.tags.join('、')}`}
+                <p className="small muted">{relTime(n.createdAt)}{n.source && ` · ${n.source === 'calendar' ? 'カレンダーから取り込み' : '学習記録から取り込み'}`}{n.tags.length > 0 && ` · ${n.tags.join('、')}`}
                   {' · '}<button className="link danger" onClick={() => removeNote(n.id)}>削除</button></p>
+              </li>))}
+            </ul>
+          )
+        )}
+        {tab === 'experiments' && (
+          experiments.length === 0 ? <p className="empty">実験の記録はまだありません。<Link to="/lab">Labで始める</Link></p> : (
+            <ul className="entries">{experiments.map((e) => (
+              <li key={e.id}>
+                <p><Link to={`/lab/${e.id}`}>{e.title}</Link></p>
+                <p className="small muted">{e.startsOn} 〜 {e.endsOn} · {e.status === 'done' ? `完了${e.outcome ? `（${OUTCOME_JA[e.outcome]}）` : ''}` : e.status === 'running' ? '進行中' : '予定'}</p>
+                {e.result && <p><span className="tag fact">結果</span>{e.result}</p>}
+                {e.aiAnalysis?.inferences[0] && <p><span className="tag infer">推測</span>{e.aiAnalysis.inferences[0]}</p>}
               </li>))}
             </ul>
           )

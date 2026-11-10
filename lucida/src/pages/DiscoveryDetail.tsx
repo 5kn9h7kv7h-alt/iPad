@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Actions, Kicker, Row, SectionHead } from '../components/parts';
 import type { Scores } from '../domain/types';
+import { pinNode } from '../knowledge/actions';
+import { buildGraph, nodeId } from '../knowledge/graph';
 import { useLucida } from '../store';
 
 const SCORE_LABEL: Record<keyof Omit<Scores, 'total'>, string> = {
@@ -14,7 +16,8 @@ const safeDecode = (u: string) => { try { return decodeURI(u); } catch { return 
 export function DiscoveryDetail() {
   const { id } = useParams();
   const nav = useNavigate();
-  const { data, generate, addSource, toggleVerified, removeSource, say } = useLucida();
+  const { data, generate, addSource, toggleVerified, removeSource, say, mutate } = useLucida();
+  const inNetwork = useMemo(() => buildGraph(data).nodes.some((n) => n.id === nodeId('discovery', id ?? '')), [data, id]);
   const [busy, setBusy] = useState(false);
   const [relMsg, setRelMsg] = useState<string | null>(null);
   const [form, setForm] = useState({ title: '', url: '', note: '' });
@@ -88,6 +91,12 @@ export function DiscoveryDetail() {
       </section>
 
       <Actions d={d} />
+      <p className="head-links next-steps">
+        <Link className="btn" to={`/lab?from=${d.id}`}>この提案を実験にする</Link>
+        {inNetwork
+          ? <Link className="btn" to="/network">Networkで見る</Link>
+          : <button className="btn" onClick={() => mutate((repo) => pinNode(repo, 'discovery', d.id, d.title)).then(() => say('Networkに追加しました'), () => say('追加に失敗しました'))}>Networkに追加</button>}
+      </p>
 
       <details className="why">
         <summary>なぜこの発見が選ばれたか</summary>

@@ -7,7 +7,9 @@ import { CATALOG_CURATED_AT } from './catalog';
 import { buildProfileSummary } from './profile';
 import type { DiscoveryProvider } from './provider';
 import { ruleBasedProvider } from './ruleBased';
+import { effectiveTarget } from './frequency';
 import { adaptWeights, matchesInterest, selectTop, tagReactions } from './scoring';
+import { isNearDuplicate } from './similarity';
 
 export interface EngineDeps {
   repo: Repository;
@@ -98,6 +100,8 @@ export function createEngine(deps: EngineDeps) {
     for (const c of candidates) {
       const h = hashText(c.title);
       if (seenHash.has(h) || seenKey.has(c.sourceKey)) continue;
+      // 言い回しだけが違う「ほぼ同じ発見」も除く（既存の発見・今回の候補どうしの両方）
+      if (discoveries.some((d) => isNearDuplicate(c, d)) || uniq.some((u) => isNearDuplicate(c, u))) continue;
       seenHash.add(h);
       uniq.push(c);
     }
@@ -105,9 +109,10 @@ export function createEngine(deps: EngineDeps) {
       return { created: [], provider: provider.id, notice: notice ?? (opts.keyword || opts.keywords?.length || opts.category ? '条件に合う新しい発見はまだありません。' : '新しく出せる発見が尽きました。興味を追加すると広がります。') };
     }
 
-    const recent = [...discoveries].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 10);
+    const sorted = [...discoveries].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const recent = sorted.slice(0, 10);
     const picks = selectTop(uniq, want, {
-      interests, reactions: tagReactions(discoveries, interactions), recent, now, weights: adaptWeights(interactions),
+      interests, reactions: tagReactions(discoveries, interactions), recent, history: sorted.slice(0, 30), now, weights: adaptWeights(interactions),
     }, { exploreLast: opts.exploreLast, categoryExplore: opts.category });
 
     const created: Discovery[] = [];
@@ -148,9 +153,10 @@ export function createEngine(deps: EngineDeps) {
     /** アプリを開いたとき: 今日の分が目標に満たなければ補う。通知・バックグラウンド処理はしない。 */
     async ensureToday(): Promise<GenerateResult | null> {
       const run = chain.then(async () => {
-        const prefs = await getPrefs(repo);
-        const todayCount = (await repo.discoveries.list()).filter((d) => d.generatedFor === dateKey(clock())).length;
-        const need = prefs.dailyTarget - todayCount;
+        const [prefs, all, interactions] = await Promise.all([getPrefs(repo), repo.discoveries.list(), repo.interactions.list()]);
+        const todayCount = all.filter((d) => d.generatedFor === dateKey(clock())).length;
+        // 提案数は反応に合わせて自動調整（Adaptive）
+        const need = effectiveTarget(prefs, all, interactions, clock()).target - todayCount;
         if (need <= 0) return null;
         return runGenerate({ count: need, exploreLast: true });
       });

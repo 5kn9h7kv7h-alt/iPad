@@ -41,11 +41,48 @@ export function parseRequest(raw: unknown): GenReq {
   };
 }
 
-/** 処理の複雑さに応じてモデルを使い分ける。検索を伴う・テーマ指定ありは上位、通常は軽量。 */
-export function pickModel(req: GenReq, models: { light: string; heavy: string }): { model: string; tier: 'light' | 'heavy' } {
+export type Tier = 'light' | 'heavy';
+
+/**
+ * 処理の複雑さに応じてモデルと思考の深さ(effort)を使い分ける（費用対策）。
+ * - 通常の自動生成 → 軽量モデル・effort low
+ * - Web検索あり／テーマ指定あり／Unknown（興味から離れた題材探し）→ 上位モデル・effort medium
+ */
+export function pickModel(req: GenReq, models: { light: string; heavy: string }): { model: string; tier: Tier; effort: 'low' | 'medium' } {
   const complex = req.allowWebSearch || !!req.keyword || !!req.keywords?.length || req.category === 'Unknown';
-  return complex ? { model: models.heavy, tier: 'heavy' } : { model: models.light, tier: 'light' };
+  return complex ? { model: models.heavy, tier: 'heavy', effort: 'medium' } : { model: models.light, tier: 'light', effort: 'low' };
 }
+
+/** 構造化出力のスキーマ（Web検索を使わないときに指定し、JSONとして必ず解釈できる応答にする）。 */
+export const CANDIDATES_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['candidates'],
+  properties: {
+    candidates: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['sourceKey', 'category', 'tags', 'title', 'fact', 'reasoning', 'suggestion', 'utility', 'sources'],
+        properties: {
+          sourceKey: { type: 'string' },
+          category: { type: 'string', enum: [...CATEGORIES] },
+          tags: { type: 'array', items: { type: 'string' } },
+          title: { type: 'string' },
+          fact: { type: 'string' },
+          reasoning: { type: 'string' },
+          suggestion: { type: 'string' },
+          utility: { type: 'number' },
+          sources: {
+            type: 'array',
+            items: { type: 'object', additionalProperties: false, required: ['title', 'url'], properties: { title: { type: 'string' }, url: { type: 'string' } } },
+          },
+        },
+      },
+    },
+  },
+} as const;
 
 export function buildPrompt(req: GenReq): { system: string; user: string } {
   const system = [
